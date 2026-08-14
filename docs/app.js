@@ -341,15 +341,24 @@ function renderJournal(trades) {
     .join("");
 }
 
+function sessLabel(kind) {
+  return (
+    {
+      premarket: "Premarket",
+      rth: "Cash",
+      afterhours: "Night tape",
+      overnight: "Closed",
+      weekend: "Weekend",
+    }[kind] || "—"
+  );
+}
+
 function sessCell(ret, rng, extra) {
   if (ret == null && rng == null) {
     return extra ? `<span class="muted">${extra}</span>` : "—";
   }
   const cls = ret > 0 ? "up" : ret < 0 ? "down" : "";
-  const sub = [rng != null ? `${Number(rng).toFixed(1)}% rng` : "", extra]
-    .filter(Boolean)
-    .join(" · ");
-  return `<span class="${cls}">${pct(ret)}</span>${sub ? `<div class="muted">${sub}</div>` : ""}`;
+  return `<span class="${cls}">${pct(ret)}</span>${extra ? `<div class="muted">${extra}</div>` : ""}`;
 }
 
 function leanCell(r) {
@@ -370,48 +379,72 @@ function leanCell(r) {
   return `<span class="pill ${cls}${strong}">${arrow} ${label}</span><div class="muted">${r.lean_why || "tape read, not a signal"}</div>`;
 }
 
+function splitBar(r) {
+  const pm = Number(r.split_pm) || 0;
+  const rth = Number(r.split_rth) || 0;
+  const ah = Number(r.split_ah) || 0;
+  const tot = pm + rth + ah;
+  if (tot <= 0) return "";
+  const w = (x) => Math.max(4, Math.round((x / tot) * 72));
+  return `<div class="split" title="Today: premarket / cash / night"><i class="pm" style="width:${w(pm)}px"></i><i class="rth" style="width:${w(rth)}px"></i><i class="ah" style="width:${w(ah)}px"></i></div>`;
+}
+
 function renderWatchlist(data) {
   const rows = data.rows || [];
   $("#wl-meta").textContent = data.generated
-    ? `Board from ${data.generated}. Fuel = is it moving now. Lean = tape read, not a buy.`
+    ? `Board from ${data.generated}. Fuel 0–10 = how much of a normal day has printed today.`
     : "No board file yet.";
   $("#tape").textContent = data.tape || "";
   const legend = $("#fuel-legend");
   if (legend) {
     legend.textContent =
       data.fuel_legend ||
-      "Fuel weights live range vs ATR, then rvol, then premarket/night. Historical vol no longer dominates. Lean is gap / VWAP / session prints — the old book had no directional edge.";
+      "Fuel is today's printed move vs ATR. Last night is the Night column, not the rank. Lean is a tape read — fade comes back mixed. Not a forecast.";
   }
   $("#sym-list").innerHTML = rows
     .flatMap((r) => [r.ticker, r.vehicle].filter(Boolean))
     .map((s) => `<option value="${s}"></option>`)
     .join("");
-  const maxFuel = Math.max(...rows.map((r) => r.fuel_score || 0), 1);
   $("#wl-body").innerHTML = rows
-    .map((r) => {
-      const w = r.fuel_score ? Math.round((r.fuel_score / maxFuel) * 72) : 8;
+    .map((r, i) => {
+      const fuel = r.fuel_score;
+      const w = fuel != null ? Math.round((Math.min(fuel, 10) / 10) * 72) : 8;
       const flags = [];
-      if (r.earnings_soon)
+      if (r.days_to_earnings === 0)
+        flags.push(`<span class="pill bad">Print today</span>`);
+      else if (r.earnings_soon)
         flags.push(`<span class="pill bad">Earnings soon</span>`);
+      if (r.spent) flags.push(`<span class="pill">Spent</span>`);
+      if (r.setup === "continuation")
+        flags.push(
+          `<span class="pill ${r.lean === "down" ? "bad" : "ok"}">Continuation</span>`,
+        );
+      if (r.setup === "fade") flags.push(`<span class="pill">Fade</span>`);
       if (r.ok_vehicle) flags.push(`<span class="pill ok">${r.vehicle}</span>`);
-      else flags.push(`<span class="pill">Underlying only</span>`);
+      else flags.push(`<span class="pill">Underlying</span>`);
       const nightExtra =
         r.night_from === "last_night"
           ? "last night"
           : r.night_from === "ah"
             ? "AH"
             : "";
-      return `<tr data-sym="${r.ok_vehicle ? r.vehicle : r.ticker}">
-        <td><strong>${r.ticker}</strong><div class="muted">${r.name} · ${r.group}</div></td>
-        <td class="num"><span class="fuel" style="width:${w}px"></span>${num(r.fuel_score)}<div class="muted">${r.fuel_note || ""}</div></td>
+      const left =
+        r.atr_left == null
+          ? "—"
+          : r.spent
+            ? "spent"
+            : `${Number(r.atr_left).toFixed(1)} ATR`;
+      const hot = i < 3 ? " hot" : "";
+      return `<tr class="${hot.trim()}" data-sym="${r.ok_vehicle ? r.vehicle : r.ticker}">
+        <td class="rank">${i + 1}</td>
+        <td><strong>${r.ticker}</strong><div class="muted">${r.name}</div></td>
+        <td class="num"><span class="fuel" style="width:${w}px"></span><span class="fuel-n">${num(fuel, 1)}</span>${splitBar(r)}<div class="muted">${r.fuel_note || ""}</div></td>
         <td>${leanCell(r)}</td>
         <td class="num">${num(r.last, 2)}</td>
-        <td class="num">${sessCell(r.pm_ret_pct, r.pm_range_pct)}</td>
-        <td class="num">${sessCell(r.rth_ret_pct, r.rth_range_pct)}</td>
-        <td class="num">${sessCell(r.ah_ret_pct, r.ah_range_pct, nightExtra)}</td>
-        <td class="num ${r.ret_1d_pct > 0 ? "up" : r.ret_1d_pct < 0 ? "down" : ""}">${pct(r.ret_1d_pct)}</td>
-        <td class="num">${num(r.atr14_pct, 2)}%</td>
-        <td>${r.ok_vehicle ? r.vehicle : "—"}</td>
+        <td class="num">${sessCell(r.pm_ret_pct)}</td>
+        <td class="num">${sessCell(r.rth_ret_pct)}</td>
+        <td class="num">${sessCell(r.ah_ret_pct, null, nightExtra)}</td>
+        <td class="num">${left}</td>
         <td>${flags.join(" ")}</td>
       </tr>`;
     })
@@ -451,6 +484,17 @@ async function loadAll() {
   }
 
   $("#clock").textContent = clock.et_label;
+  const pill = $("#session-pill");
+  if (pill) {
+    pill.textContent = sessLabel(clock.session);
+    pill.className =
+      "pill" +
+      (clock.session === "rth"
+        ? " ok"
+        : clock.session === "premarket" || clock.session === "afterhours"
+          ? ""
+          : " bad");
+  }
   $("#clock-note").textContent = clockNote(clock);
   $("#log-form").entry_time.value = clock.et_local;
   $("#tab-book").hidden = !apiMode;

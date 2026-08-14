@@ -18,4 +18,4 @@ python run_web.py         # http://127.0.0.1:8787
 
 Then click **Refresh board**. That scores Yahoo daily plus 5-minute premarket / cash / night bars.
 
-Fuel ranks names that are moving *now* (range vs ATR, rvol, extended hours), not names that were merely wild last month. Lean is a tape read, not a forecast.
+Fuel ranks names that have already printed a real piece of their typical day (0–10). Lean is a tape read, not a forecast. Fade comes back mixed.

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import time
 from datetime import datetime, timezone
 from urllib.error import HTTPError, URLError
@@ -25,7 +26,6 @@ from .config import (
     WATCHLIST,
     WATCHLIST_SKIP,
     et_session,
-    expected_range_frac,
     expected_volume_frac,
 )
 
@@ -279,6 +279,8 @@ def _sess_stats(bars: pd.DataFrame, ref: float | None) -> dict:
         if vol > 0:
             typical = (bars["high"] + bars["low"] + bars["close"]) / 3
             out["vwap"] = float((typical * bars["volume"].fillna(0)).sum() / vol)
+        else:
+            out["vwap"] = float(bars["close"].mean())
     return out
 
 
@@ -290,6 +292,8 @@ def _prior_close(daily: pd.DataFrame, now: pd.Timestamp) -> float:
 
 
 def _tape_lean(
+    *,
+    session: str,
     prior: float,
     last: float,
     atr: float,
@@ -297,161 +301,95 @@ def _tape_lean(
     rth: dict,
     ah: dict,
     vwap: float,
-    include_ah_range: bool,
-) -> tuple[str, str, int]:
-    """Describe where the tape is. Not a forecast — the book had no directional edge."""
-    thresh = max(0.12, 0.06 * atr) if _finite(atr) else 0.15
-    votes: list[int] = []
-    bits: list[str] = []
+    night_from: str,
+) -> tuple[str, str, int, str]:
+    """Tape read only. Fade = mixed. Not a forecast — the book had no directional edge."""
+    thresh = max(0.25, 0.08 * atr) if _finite(atr) and atr > 0 else 0.25
 
-    def vote(delta_pct: float, label: str) -> None:
-        if not _finite(delta_pct) or abs(delta_pct) < thresh:
-            return
-        side = 1 if delta_pct > 0 else -1
-        votes.append(side)
-        bits.append(f"{label} {delta_pct:+.1f}%")
+    def sgn(x) -> int:
+        if not _finite(x) or abs(float(x)) < thresh:
+            return 0
+        return 1 if float(x) > 0 else -1
 
-    if _finite(pm.get("ret_pct")):
-        vote(float(pm["ret_pct"]), "PM")
-        vs_close_done = True
+    pm_x = pm.get("ret_pct")
+    rth_x = rth.get("ret_pct")
+    ah_x = ah.get("ret_pct")
+    day_x = (last / prior - 1) * 100 if _finite(last) and _finite(prior) and prior else np.nan
+    pm_s, rth_s, ah_s, day_s = sgn(pm_x), sgn(rth_x), sgn(ah_x), sgn(day_x)
+
+    if session == "premarket":
+        live, live_x, live_lbl = pm_s, pm_x, "PM"
+    elif session == "rth":
+        live, live_x, live_lbl = (rth_s or day_s), (rth_x if _finite(rth_x) else day_x), "cash"
+    elif session == "afterhours":
+        live, live_x, live_lbl = ah_s, ah_x, "night"
     else:
-        vs_close_done = False
-    if _finite(rth.get("ret_pct")):
-        vote(float(rth["ret_pct"]), "cash")
-        vs_close_done = True
-    if _finite(ah.get("ret_pct")):
-        vote(float(ah["ret_pct"]), "night")
-    if not vs_close_done and _finite(last) and _finite(prior) and prior:
-        vote((last / prior - 1) * 100, "vs last close")
+        live, live_x, live_lbl = day_s, day_x, "last"
+
+    setup = ""
+    if session == "premarket" and pm_s and ah_s:
+        setup = "continuation" if pm_s == ah_s else "fade"
+    elif session == "rth" and rth_s and pm_s:
+        setup = "continuation" if rth_s == pm_s else "fade"
+    elif session == "afterhours" and ah_s and rth_s:
+        setup = "continuation" if ah_s == rth_s else "fade"
+    elif session in {"overnight", "weekend"} and day_s and ah_s:
+        setup = "continuation" if day_s == ah_s else "fade"
+
+    if setup == "fade":
+        why = "fade"
+        if _finite(pm_x) and _finite(ah_x) and session == "premarket":
+            why = f"fade · night {ah_x:+.1f}% vs PM {pm_x:+.1f}%"
+        elif _finite(rth_x) and _finite(pm_x):
+            why = f"fade · PM {pm_x:+.1f}% vs cash {rth_x:+.1f}%"
+        return "mixed", why, 0, setup
+
+    if live == 0:
+        return "flat", "no lean yet", 0, setup
+
+    lean = "up" if live > 0 else "down"
+    bits = []
+    if setup:
+        bits.append(setup)
+    if _finite(live_x):
+        bits.append(f"{live_lbl} {live_x:+.1f}%")
     if _finite(last) and _finite(vwap) and vwap:
-        vote((last / vwap - 1) * 100, "vs VWAP")
+        vs = (last / vwap - 1) * 100
+        if abs(vs) >= thresh:
+            bits.append("above VWAP" if vs > 0 else "below VWAP")
+            if (vs > 0) != (live > 0):
+                return "mixed", " · ".join(bits + ["VWAP disagrees"]), 0, setup or "mixed"
 
-    envelope_hi = max(
-        [
-            x
-            for x in (
-                pm.get("high"),
-                rth.get("high"),
-                ah.get("high") if include_ah_range else np.nan,
-            )
-            if _finite(x)
-        ],
-        default=np.nan,
-    )
-    envelope_lo = min(
-        [
-            x
-            for x in (
-                pm.get("low"),
-                rth.get("low"),
-                ah.get("low") if include_ah_range else np.nan,
-            )
-            if _finite(x)
-        ],
-        default=np.nan,
-    )
-    if _finite(last) and _finite(envelope_hi) and _finite(envelope_lo) and envelope_hi > envelope_lo:
-        mid = (envelope_hi + envelope_lo) / 2
-        loc = (last - mid) / (envelope_hi - envelope_lo)
-        if abs(loc) >= 0.15:
-            votes.append(1 if loc > 0 else -1)
-            bits.append("upper half of range" if loc > 0 else "lower half of range")
-
-    if not votes:
-        return "flat", "no lean yet", 0
-    score = sum(votes) / len(votes)
-    if score >= 0.5:
-        lean = "up"
-    elif score <= -0.5:
-        lean = "down"
-    else:
-        lean = "mixed"
-    why = ", ".join(bits[:3]) if bits else "mixed prints"
-    strength = 0
-    if lean in {"up", "down"}:
-        mag = abs((last / prior - 1) * 100) if _finite(last) and _finite(prior) and prior else 0
-        atr_frac = mag / atr if _finite(atr) and atr else 0
-        if abs(score) >= 0.8 or atr_frac >= 0.35:
-            strength = 2
-        else:
-            strength = 1
-    return lean, why, strength
+    mag = abs(float(live_x)) / atr if _finite(live_x) and _finite(atr) and atr else 0
+    strength = 2 if mag >= 0.35 else 1
+    return lean, " · ".join(bits) if bits else "tape read, not a signal", strength, setup
 
 
-def _fuel_score(
-    *,
-    total_range: float,
-    atr: float,
-    rvol: float,
-    pm_range: float,
-    ah_range: float,
-    range_frac: float,
-) -> tuple[float, str]:
+def _fuel_score(*, printed: float, atr: float, rvol: float) -> tuple[float, str, float, float, bool]:
     """
-    Fuel = is the name moving *now*, not how wild it was last month.
-
-    Old formula was ~65% historical vol/ATR, so SNDK-style names stayed on top
-    even when today was quiet. This one is mostly live range vs this name's ATR,
-    plus whether volume is actually showing up, plus whether premarket/night
-    already printed a real range.
+    0–10: how much of this name's typical day has already printed *today*.
+    Last night is context, not fuel. No early-session boost — a 1% wiggle
+    should not look like a 5% gap.
     """
-    parts: dict[str, float] = {}
-    notes: list[str] = []
-
-    if _finite(total_range) and _finite(atr) and atr > 0.2:
-        expected = max(range_frac or 1.0, 0.10)
-        live = _clip((total_range / atr) / expected / 1.10, 0, 1.6)
-        parts["live"] = live
-        notes.append(f"{total_range / atr:.1f}× ATR")
-    elif _finite(total_range):
-        parts["live"] = _clip(total_range / 4.0, 0, 1.4)
-        notes.append(f"{total_range:.1f}% range")
-
+    if not _finite(printed) or not _finite(atr) or atr <= 0.15:
+        return float("nan"), "no tape yet", float("nan"), float("nan"), False
+    used = max(0.0, printed / atr)
+    left = max(0.0, 1.0 - used)
+    core = 10.0 * math.tanh(used / 0.40)
     if _finite(rvol):
-        parts["rvol"] = _clip(rvol / 1.0, 0, 1.5)
-        if rvol >= 0.8:
-            notes.append(f"rvol {rvol:.1f}×")
-
-    ext_raw = 0.0
-    where = []
-    if _finite(pm_range) and _finite(atr) and atr > 0:
-        ext_raw += pm_range / atr
-        if pm_range / atr >= 0.18 or pm_range >= 1.0:
-            where.append("PM")
-    elif _finite(pm_range) and pm_range >= 0.8:
-        ext_raw += pm_range / 3.0
-        where.append("PM")
-    if _finite(ah_range) and _finite(atr) and atr > 0:
-        ext_raw += ah_range / atr
-        if ah_range / atr >= 0.18 or ah_range >= 1.0:
-            where.append("night")
-    elif _finite(ah_range) and ah_range >= 0.8:
-        ext_raw += ah_range / 3.0
-        where.append("night")
-    if ext_raw:
-        parts["ext"] = _clip(ext_raw, 0, 1.3)
-        if where:
-            notes.append("fuel in " + "+".join(where))
-
-    if _finite(atr):
-        # Same-session 2x needs some typical range, but this must not dominate.
-        if atr < 1.5:
-            parts["struct"] = 0.35 * (atr / 1.5)
-        elif atr < 7:
-            parts["struct"] = 0.35 + 0.65 * (atr - 1.5) / 5.5
-        else:
-            parts["struct"] = 1.0
-
-    weights = {"live": 0.42, "rvol": 0.23, "ext": 0.20, "struct": 0.15}
-    have = {k: parts[k] for k in weights if k in parts}
-    if not have:
-        return float("nan"), "no tape yet"
-    wsum = sum(weights[k] for k in have)
-    fuel = sum(weights[k] * have[k] for k in have) / wsum
-    if have.get("live", 1) < 0.28 and have.get("ext", 0) < 0.25 and have.get("rvol", 1) < 0.45:
-        notes = ["quiet vs ATR"] + [n for n in notes if "ATR" not in n]
-    note = " · ".join(notes[:3]) if notes else "thin tape"
-    return float(fuel), note
+        core *= 0.90 + 0.10 * min(max(float(rvol), 0.0), 2.0)
+    if atr < 1.8:
+        core *= 0.50 + 0.50 * (atr / 1.8)
+    fuel = _clip(core, 0, 10)
+    spent = used >= 0.70
+    notes = [f"{used:.1f}× ATR used"]
+    if spent:
+        notes.append("spent — little left vs a normal day")
+    elif left >= 0.45:
+        notes.append(f"{left:.1f} ATR left")
+    if fuel < 2.5:
+        notes = ["quiet"] + [n for n in notes if "used" in n]
+    return float(fuel), " · ".join(notes[:2]), float(used), float(left), spent
 
 
 def _reuse_earnings(out: dict, prev: dict | None) -> None:
@@ -511,6 +449,13 @@ def score_name(row: dict, prev: dict | None = None) -> dict:
         "lean": "flat",
         "lean_why": "",
         "lean_strength": 0,
+        "setup": "",
+        "atr_used": np.nan,
+        "atr_left": np.nan,
+        "spent": False,
+        "split_pm": 0.0,
+        "split_rth": 0.0,
+        "split_ah": 0.0,
         "session": sess["kind"],
         "note": "",
     }
@@ -619,56 +564,66 @@ def score_name(row: dict, prev: dict | None = None) -> dict:
     # Earnings dates go through Yahoo query1 (crumb), which 429s and hangs refresh.
     _reuse_earnings(out, prev)
 
-    lean, why, strength = _tape_lean(
-        prior,
-        last,
-        out["atr14_pct"],
-        pm,
-        rth,
-        ah,
-        vwap,
-        include_ah_range=out.get("night_from") == "ah",
+    lean, why, strength, setup = _tape_lean(
+        session=sess["kind"],
+        prior=prior,
+        last=last,
+        atr=out["atr14_pct"],
+        pm=pm,
+        rth=rth,
+        ah=ah,
+        vwap=vwap,
+        night_from=out.get("night_from") or "",
     )
     out["lean"] = lean
     out["lean_why"] = why
     out["lean_strength"] = strength
+    out["setup"] = setup
 
-    if sess["kind"] in {"premarket", "overnight"} or out.get("night_from") == "ah":
-        ah_move = _printed_move(out["ah_range_pct"], out["ah_ret_pct"])
-    else:
-        ah_move = np.nan
+    # Fuel is today only. Last night stays in the Night column for context.
     printed = _printed_move(out["today_range_pct"], out["ret_1d_pct"])
+    printed = _printed_move(printed, out["pm_ret_pct"])
+    printed = _printed_move(printed, out["rth_ret_pct"])
     if _finite(out["gap_pct"]):
-        printed = max([x for x in (printed, abs(out["gap_pct"])) if _finite(x)], default=printed)
-    fuel, fuel_note = _fuel_score(
-        total_range=printed,
+        printed = _printed_move(printed, out["gap_pct"])
+    if out.get("night_from") == "ah":
+        printed = _printed_move(printed, out["ah_ret_pct"])
+        printed = _printed_move(printed, out["ah_range_pct"])
+    fuel, fuel_note, used, left, spent = _fuel_score(
+        printed=printed,
         atr=out["atr14_pct"],
         rvol=out["rvol_20"],
-        pm_range=_printed_move(out["pm_range_pct"], out["pm_ret_pct"]),
-        ah_range=ah_move,
-        range_frac=expected_range_frac(sess["kind"], int(sess["mins"]), complete=complete_day),
     )
     out["fuel_score"] = fuel
     out["fuel_note"] = fuel_note
+    out["atr_used"] = used
+    out["atr_left"] = left
+    out["spent"] = spent
+    out["split_pm"] = abs(float(out["pm_ret_pct"])) if _finite(out["pm_ret_pct"]) else 0.0
+    out["split_rth"] = abs(float(out["rth_ret_pct"])) if _finite(out["rth_ret_pct"]) else 0.0
+    out["split_ah"] = (
+        abs(float(out["ah_ret_pct"]))
+        if out.get("night_from") == "ah" and _finite(out["ah_ret_pct"])
+        else 0.0
+    )
 
     notes = []
-    if out.get("next_earnings"):
-        notes.append("earnings source=cached")
     if out["too_young"]:
         notes.append(f"under {MIN_HISTORY_DAYS} daily bars — treat as young")
-    if out["earnings_soon"]:
+    if _finite(out.get("days_to_earnings")) and int(out["days_to_earnings"]) == 0:
+        notes.append("print today — do not hold through it")
+    elif out["earnings_soon"]:
         notes.append("earnings within 2 sessions — flatten, do not hold through print")
     if row["group"] == "benchmark":
         notes.append("benchmark only")
     if row["ticker"] in {"SOXX", "SMH"}:
         notes.append("sector tape; do not jump to SOXL/SOXS overnight")
     if not row.get("ok_vehicle"):
-        notes.append("no established 2x on this board — underlying same-session only, or skip")
-    if sess["kind"] in {"premarket", "afterhours", "overnight"}:
-        notes.append("extended hours — look, do not carry 2x into the next cash session")
+        notes.append("no established 2x — underlying same-session only, or skip")
+    if spent:
+        notes.append("most of a normal day already printed — chasing leftover is how overnight got hurt")
     if notes:
-        extra = "; ".join(notes)
-        out["note"] = f"{out['note']}; {extra}" if out["note"] else extra
+        out["note"] = "; ".join(notes)
     return out
 
 
@@ -691,7 +646,7 @@ def write_watchlist(df: pd.DataFrame, tape_note: str = "") -> dict[str, str]:
     lines = [
         "# Same-session volatility board",
         "",
-        "**Not a buy list. Not a bot. Not live trading.** Ranked by **fuel**: today's live range vs this name's ATR, whether volume is actually showing up, and whether premarket / night already printed a real move. High fuel = the tape is active, not a reason to buy. **Lean** is a tape read (gap, VWAP, session prints) — not a forecast. The old book had no directional edge.",
+        "**Not a buy list. Not a bot.** Ranked by **fuel (0–10)**: how much of this name's typical day has already printed *today*. Last night is shown, not scored. **Lean** is a tape read. Fade = mixed. Not a forecast.",
         "",
         f"Generated: {now}",
         "",
@@ -728,6 +683,10 @@ def write_watchlist(df: pd.DataFrame, tape_note: str = "") -> dict[str, str]:
             "lean_why",
             "fuel_score",
             "fuel_note",
+            "atr_used",
+            "atr_left",
+            "spent",
+            "setup",
             "pm_ret_pct",
             "pm_range_pct",
             "rth_ret_pct",
@@ -818,13 +777,11 @@ def load_cached_watchlist() -> dict:
 
 
 FUEL_LEGEND = (
-    "Fuel = live range vs this name's ATR (42%), time-adjusted rvol (23%), "
-    "premarket/night range (20%), typical ATR floor (15%). Quiet high-vol names "
-    "no longer sit on top. Lean is a tape read (gap, VWAP, session prints), not a forecast."
+    "Fuel 0–10 = how much of a normal day has already printed today (gap + session vs ATR). "
+    "Last night is context, not the rank. Lean is a tape read — fade comes back mixed. Not a forecast."
 )
 
 TAPE_NOTE = (
-    "Fuel is live range vs ATR, plus rvol, plus premarket/night. "
-    "Lean is where the tape is vs last close and VWAP — not a forecast. "
+    "Look at high fuel. Lean is not a buy. If it says spent or print today, do not chase. "
     "Flatten 2x before 16:00 ET. Do not carry overnight."
 )

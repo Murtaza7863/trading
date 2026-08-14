@@ -182,8 +182,29 @@ input, select {
 }
 .pill.bad { background: #2a1c1a; color: var(--down); }
 .pill.ok { background: #1b241c; color: var(--up); }
-.pill.strong { font-weight: 700; letter-spacing: 0.02em; }
-.sess { display: block; }
+.session-line { margin: 6px 0 0; }
+.session-line .pill { font-size: 11px; }
+.rank {
+  color: var(--muted);
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-size: 12px;
+  width: 28px;
+}
+.split {
+  display: flex;
+  height: 4px;
+  width: 72px;
+  background: #24282c;
+  border-radius: 99px;
+  overflow: hidden;
+  margin: 5px 0 0 auto;
+}
+.split i { display: block; height: 100%; }
+.split .pm { background: #c4a574; }
+.split .rth { background: #7d9a78; }
+.split .ah { background: #6e8aa8; }
+tbody tr.hot td { background: #1a1e22; }
+.fuel-n { font-weight: 600; }
 
 .tape {
   font-family: ui-sans-serif, system-ui, sans-serif;

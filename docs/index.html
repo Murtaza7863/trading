@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Desk — same-session tape</title>
-    <link rel="stylesheet" href="styles.css?v=4" />
+    <link rel="stylesheet" href="styles.css?v=5" />
   </head>
   <body>
     <header class="top">
@@ -14,6 +14,7 @@
       </div>
       <div class="top-right">
         <p id="clock" class="clock">—</p>
+        <p id="session-line" class="session-line"><span id="session-pill" class="pill">—</span></p>
         <p id="clock-note" class="muted">Times are America/New_York</p>
       </div>
     </header>
@@ -28,6 +29,37 @@
     <p id="flash" class="flash" hidden></p>
 
     <section data-panel="desk" class="panel on">
+      <article class="card">
+        <div class="card-head">
+          <div>
+            <h2>Volatility board</h2>
+            <p class="muted" id="wl-meta">Loading board…</p>
+          </div>
+          <button id="refresh" class="btn ghost" type="button">Refresh board</button>
+        </div>
+        <p id="tape" class="tape"></p>
+        <p id="fuel-legend" class="tape"></p>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th></th>
+                <th>Name</th>
+                <th class="num">Fuel</th>
+                <th>Lean</th>
+                <th class="num">Last</th>
+                <th class="num">Premarket</th>
+                <th class="num">Cash</th>
+                <th class="num">Night</th>
+                <th class="num">Left</th>
+                <th>Flags</th>
+              </tr>
+            </thead>
+            <tbody id="wl-body"></tbody>
+          </table>
+        </div>
+      </article>
+
       <div class="grid">
         <article class="card">
           <div class="card-head">
@@ -69,38 +101,6 @@
           <div id="opens" class="opens"></div>
         </article>
       </div>
-
-      <article class="card">
-        <div class="card-head">
-          <div>
-            <h2>Volatility board</h2>
-            <p class="muted" id="wl-meta">Loading board…</p>
-          </div>
-          <button id="refresh" class="btn ghost" type="button">Refresh board</button>
-        </div>
-        <p id="tape" class="tape"></p>
-        <p id="fuel-legend" class="tape"></p>
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th class="num">Fuel</th>
-                <th>Lean</th>
-                <th class="num">Last</th>
-                <th class="num">Premarket</th>
-                <th class="num">Cash</th>
-                <th class="num">Night</th>
-                <th class="num">vs close</th>
-                <th class="num">ATR</th>
-                <th>2x</th>
-                <th>Flags</th>
-              </tr>
-            </thead>
-            <tbody id="wl-body"></tbody>
-          </table>
-        </div>
-      </article>
     </section>
 
     <section data-panel="journal" class="panel">
@@ -170,6 +170,6 @@
       </form>
     </dialog>
 
-    <script src="app.js?v=4"></script>
+    <script src="app.js?v=5"></script>
   </body>
 </html>

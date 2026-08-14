@@ -2,11 +2,17 @@ name: Refresh watchlist
 
 on:
   schedule:
-    # Weekdays around 9:45 / 12:00 / 15:30 US Eastern (EDT = UTC-4)
-    - cron: "45 13 * * 1-5"
-    - cron: "0 16 * * 1-5"
-    - cron: "30 19 * * 1-5"
+    # Every 10 minutes, weekdays, US extended hours.
+    # EDT: 4:00–19:50 ET. GitHub cron cannot run faster than every 5 minutes
+    # and scheduled jobs are often several minutes late.
+    - cron: "*/10 8-23 * * 1-5"
+    # Friday night tape after 20:00 ET (Saturday 00:00–00:50 UTC in EDT)
+    - cron: "*/10 0 * * 6"
   workflow_dispatch:
+
+concurrency:
+  group: watchlist
+  cancel-in-progress: true
 
 permissions:
   contents: write
@@ -14,13 +20,16 @@ permissions:
 jobs:
   board:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-watchlist.txt
       - name: Install
-        run: pip install pandas numpy curl_cffi
+        run: pip install -r requirements-watchlist.txt
       - name: Score board
         run: python run_watchlist.py
       - name: Commit snapshot

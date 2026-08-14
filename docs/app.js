@@ -581,7 +581,7 @@ $("#refresh").addEventListener("click", async () => {
       renderWatchlist(data);
       flash(
         data.generated
-          ? `Board snapshot from ${data.generated}. Live Yahoo needs the local desk.`
+          ? `Board snapshot from ${data.generated}. GitHub rescores this about every 10 minutes during the US session.`
           : "Loaded the committed board snapshot.",
       );
     }

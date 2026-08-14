@@ -8,7 +8,7 @@ Log trades in the browser. They stay in `localStorage` on your machine and are n
 
 ## Use the site
 
-Open the URL above. **Refresh board** reloads the latest committed snapshot (a GitHub Action updates it on weekday sessions).
+Open the URL above. **Refresh board** reloads the latest snapshot. A GitHub Action rescores Yahoo about every 10 minutes on weekday US sessions (GitHub’s scheduler is often a few minutes late; it cannot run faster than every 5 minutes).
 
 For a live Yahoo pull, run the desk on your laptop:
 

@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Desk — same-session tape</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="top">
+      <div>
+        <p class="eyebrow">Personal desk · not a broker</p>
+        <h1>Same-session tape</h1>
+      </div>
+      <div class="top-right">
+        <p id="clock" class="clock">—</p>
+        <p id="clock-note" class="muted">Times are America/New_York</p>
+      </div>
+    </header>
+
+    <nav class="tabs" role="tablist">
+      <button class="tab on" data-tab="desk">Desk</button>
+      <button class="tab" data-tab="journal">Journal</button>
+      <button class="tab" data-tab="book" id="tab-book">Broker book</button>
+    </nav>
+
+    <section id="stats" class="stats"></section>
+    <p id="flash" class="flash" hidden></p>
+
+    <section data-panel="desk" class="panel on">
+      <div class="grid">
+        <article class="card">
+          <div class="card-head">
+            <h2>Log a trade</h2>
+            <p class="muted">One ticket. Close it the same session. Saved in this browser.</p>
+          </div>
+          <form id="log-form" class="form">
+            <label>Symbol
+              <input name="symbol" list="sym-list" placeholder="MUU" required />
+            </label>
+            <label>Side
+              <select name="side">
+                <option value="buy">Buy</option>
+                <option value="sell">Sell / short the ETF</option>
+              </select>
+            </label>
+            <label>Qty
+              <input name="qty" type="number" step="any" min="0" required />
+            </label>
+            <label>Entry price
+              <input name="entry_price" type="number" step="any" min="0" required />
+            </label>
+            <label>Entry time (ET)
+              <input name="entry_time" type="datetime-local" required />
+            </label>
+            <label class="wide">Notes
+              <input name="notes" placeholder="Optional" />
+            </label>
+            <button type="submit" class="btn">Save open lot</button>
+          </form>
+          <datalist id="sym-list"></datalist>
+        </article>
+
+        <article class="card">
+          <div class="card-head">
+            <h2>Open lots</h2>
+            <p class="muted" id="open-empty">Nothing open in the journal.</p>
+          </div>
+          <div id="opens" class="opens"></div>
+        </article>
+      </div>
+
+      <article class="card">
+        <div class="card-head">
+          <div>
+            <h2>Volatility board</h2>
+            <p class="muted" id="wl-meta">Loading board…</p>
+          </div>
+          <button id="refresh" class="btn ghost" type="button">Refresh from Yahoo</button>
+        </div>
+        <p id="tape" class="tape"></p>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th class="num">Fuel</th>
+                <th class="num">Last</th>
+                <th class="num">1d</th>
+                <th class="num">5d</th>
+                <th class="num">Vol 20d</th>
+                <th class="num">ATR</th>
+                <th class="num">Today rng</th>
+                <th>2x</th>
+                <th>Flags</th>
+              </tr>
+            </thead>
+            <tbody id="wl-body"></tbody>
+          </table>
+        </div>
+      </article>
+    </section>
+
+    <section data-panel="journal" class="panel">
+      <article class="card">
+        <div class="card-head">
+          <h2>Your journal</h2>
+          <p class="muted">Stays in this browser (localStorage). Not uploaded to GitHub.</p>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Symbol</th>
+                <th>Side</th>
+                <th class="num">Qty</th>
+                <th>In / out</th>
+                <th class="num">P&amp;L</th>
+                <th>Hold</th>
+                <th>Notes</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="journal-body"></tbody>
+          </table>
+        </div>
+      </article>
+    </section>
+
+    <section data-panel="book" class="panel">
+      <article class="card">
+        <div class="card-head">
+          <h2>Broker history</h2>
+          <p class="muted">FIFO lots from a local Webull CSV. Not on the hosted site.</p>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Symbol</th>
+                <th class="num">Qty</th>
+                <th>Entry → exit</th>
+                <th>Overnight</th>
+                <th class="num">P&amp;L</th>
+                <th>Session</th>
+              </tr>
+            </thead>
+            <tbody id="book-body"></tbody>
+          </table>
+        </div>
+      </article>
+    </section>
+
+    <dialog id="close-dlg">
+      <form id="close-form" method="dialog" class="form">
+        <h3>Close <span id="close-sym"></span></h3>
+        <input type="hidden" name="id" />
+        <label>Exit price
+          <input name="exit_price" type="number" step="any" min="0" required />
+        </label>
+        <label>Exit time (ET)
+          <input name="exit_time" type="datetime-local" required />
+        </label>
+        <div class="row-btns">
+          <button value="cancel" class="btn ghost" type="button" id="close-cancel">Cancel</button>
+          <button value="default" class="btn" type="submit">Close lot</button>
+        </div>
+      </form>
+    </dialog>
+
+    <script src="app.js"></script>
+  </body>
+</html>

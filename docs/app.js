@@ -39,6 +39,17 @@ function flash(msg) {
   el.textContent = msg || "";
 }
 
+function pageBase() {
+  const href = window.location.href.split("#")[0].split("?")[0];
+  if (href.endsWith(".html")) {
+    return href.slice(0, href.lastIndexOf("/") + 1);
+  }
+  return href.endsWith("/") ? href : `${href}/`;
+}
+function asset(path) {
+  return new URL(path, pageBase()).toString();
+}
+
 function etClock() {
   const now = new Date();
   const parts = new Intl.DateTimeFormat("en-US", {
@@ -179,13 +190,62 @@ function journalState() {
 }
 
 async function api(path, opts = {}) {
-  const res = await fetch(path, {
-    headers: { "Content-Type": "application/json" },
-    ...opts,
-    body: opts.body ? JSON.stringify(opts.body) : undefined,
-  });
-  if (!res.ok) throw new Error(res.statusText);
-  return res.json();
+  const ctrl = new AbortController();
+  const ms = opts.timeoutMs || 20000;
+  const timer = setTimeout(() => ctrl.abort(), ms);
+  try {
+    const res = await fetch(asset(path), {
+      method: opts.method || "GET",
+      headers: { "Content-Type": "application/json" },
+      body: opts.body ? JSON.stringify(opts.body) : undefined,
+      signal: ctrl.signal,
+      cache: "no-store",
+    });
+    const text = await res.text();
+    let data = null;
+    try {
+      data = text ? JSON.parse(text) : null;
+    } catch {
+      data = { detail: text };
+    }
+    if (!res.ok) {
+      const detail = data && data.detail;
+      throw new Error(
+        typeof detail === "string" && detail
+          ? detail
+          : res.statusText || "Request failed",
+      );
+    }
+    return data;
+  } catch (err) {
+    if (err && err.name === "AbortError") {
+      throw new Error("Timed out waiting for the board.");
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function loadSnapshot(bust) {
+  const q = bust ? `?t=${Date.now()}` : "";
+  const urls = [asset(`watchlist.json${q}`)];
+  if (location.hostname.endsWith("github.io")) {
+    urls.push(
+      `https://raw.githubusercontent.com/Murtaza7863/trading/main/docs/watchlist.json${q}`,
+    );
+  }
+  let lastErr;
+  for (const url of urls) {
+    try {
+      const res = await fetch(url, { cache: "no-store" });
+      if (!res.ok) throw new Error(res.statusText);
+      return await res.json();
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  throw lastErr || new Error("Could not load the volatility board.");
 }
 
 function renderStats(s = {}) {
@@ -331,16 +391,12 @@ async function loadAll() {
       : "Times are America/New_York.";
   $("#log-form").entry_time.value = clock.et_local;
   $("#tab-book").hidden = !apiMode;
-  $("#refresh").hidden = !apiMode;
-  if (!apiMode) {
-    $("#refresh").textContent = "Snapshot board";
-  }
+  $("#refresh").hidden = false;
+  $("#refresh").textContent = "Refresh board";
 
   let wl = { rows: [] };
   try {
-    wl = apiMode
-      ? await api("api/watchlist")
-      : await (await fetch("watchlist.json")).json();
+    wl = apiMode ? await api("api/watchlist") : await loadSnapshot(false);
   } catch {
     flash("Could not load the volatility board.");
   }
@@ -394,19 +450,33 @@ $("#log-form").addEventListener("submit", async (e) => {
 });
 
 $("#refresh").addEventListener("click", async () => {
-  if (!apiMode) return;
   const btn = $("#refresh");
   btn.disabled = true;
-  btn.textContent = "Pulling Yahoo (~30s)…";
+  btn.textContent = apiMode ? "Pulling Yahoo…" : "Reloading board…";
+  flash("");
   try {
-    renderWatchlist(
-      await api("api/watchlist/refresh", { method: "POST", body: {} }),
-    );
+    if (apiMode) {
+      renderWatchlist(
+        await api("api/watchlist/refresh", {
+          method: "POST",
+          body: {},
+          timeoutMs: 90000,
+        }),
+      );
+    } else {
+      const data = await loadSnapshot(true);
+      renderWatchlist(data);
+      flash(
+        data.generated
+          ? `Board snapshot from ${data.generated}. Live Yahoo needs the local desk.`
+          : "Loaded the committed board snapshot.",
+      );
+    }
   } catch (err) {
-    flash(err.message);
+    flash(err.message || String(err));
   } finally {
     btn.disabled = false;
-    btn.textContent = "Refresh from Yahoo";
+    btn.textContent = "Refresh board";
   }
 });
 

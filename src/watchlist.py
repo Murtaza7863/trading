@@ -5,19 +5,103 @@ from __future__ import annotations
 import json
 import time
 from datetime import datetime, timezone
+from urllib.error import HTTPError, URLError
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
 
 import numpy as np
 import pandas as pd
-import yfinance as yf
+
+try:
+    import yfinance as yf
+except ImportError:
+    yf = None
 
 from .config import REPORT_DIR, ROOT, TABLE_DIR, TZ, WATCHLIST, WATCHLIST_SKIP
 
 MIN_HISTORY_DAYS = 60
 EARNINGS_WARN_DAYS = 2
-SLEEP_S = 0.25
+SLEEP_S = 0.08
+YAHOO_UA = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+)
+# query1 is rate-limited from many IPs (HTTP 429). query2 still serves charts.
+YAHOO_CHART = "https://query2.finance.yahoo.com/v8/finance/chart"
 
 
-def _hist(ticker: str, period: str, interval: str, prepost: bool = False) -> pd.DataFrame:
+def _fetch_yahoo_json(url: str) -> dict:
+    headers = {"User-Agent": YAHOO_UA, "Accept": "application/json"}
+    last_exc: Exception | None = None
+    for attempt in range(4):
+        try:
+            try:
+                from curl_cffi import requests as cf_requests
+
+                resp = cf_requests.get(url, impersonate="chrome", timeout=20, headers=headers)
+                if resp.status_code == 429:
+                    time.sleep(1.5 * (attempt + 1))
+                    continue
+                if resp.status_code != 200:
+                    last_exc = RuntimeError(f"Yahoo HTTP {resp.status_code}")
+                    time.sleep(0.4)
+                    continue
+                return resp.json()
+            except ImportError:
+                req = Request(url, headers=headers)
+                with urlopen(req, timeout=20) as resp:
+                    return json.loads(resp.read().decode())
+        except HTTPError as exc:
+            last_exc = exc
+            if exc.code == 429:
+                time.sleep(1.5 * (attempt + 1))
+                continue
+            break
+        except (URLError, TimeoutError, json.JSONDecodeError, OSError) as exc:
+            last_exc = exc
+            time.sleep(0.5)
+    if last_exc:
+        raise last_exc
+    raise RuntimeError("Yahoo chart empty")
+
+
+def _yahoo_chart(ticker: str, interval: str, range_: str, prepost: bool = False) -> pd.DataFrame:
+    params = {
+        "interval": interval,
+        "range": range_,
+        "includePrePost": "true" if prepost else "false",
+        "events": "div,splits",
+    }
+    url = f"{YAHOO_CHART}/{ticker}?{urlencode(params)}"
+    try:
+        payload = _fetch_yahoo_json(url)
+    except Exception:
+        return pd.DataFrame()
+    result = (payload.get("chart") or {}).get("result") or []
+    if not result:
+        return pd.DataFrame()
+    node = result[0]
+    ts = node.get("timestamp") or []
+    quote = ((node.get("indicators") or {}).get("quote") or [{}])[0]
+    if not ts:
+        return pd.DataFrame()
+    df = pd.DataFrame(
+        {
+            "open": quote.get("open"),
+            "high": quote.get("high"),
+            "low": quote.get("low"),
+            "close": quote.get("close"),
+            "volume": quote.get("volume"),
+        },
+        index=pd.to_datetime(ts, unit="s", utc=True),
+    )
+    df.index = df.index.tz_convert(TZ)
+    return df.dropna(subset=["close"])
+
+
+def _hist_yf(ticker: str, period: str, interval: str, prepost: bool = False) -> pd.DataFrame:
+    if yf is None:
+        return pd.DataFrame()
     t = yf.Ticker(ticker)
     df = t.history(
         period=period,
@@ -25,7 +109,7 @@ def _hist(ticker: str, period: str, interval: str, prepost: bool = False) -> pd.
         auto_adjust=False,
         actions=False,
         prepost=prepost,
-        timeout=60,
+        timeout=20,
     )
     if df is None or df.empty:
         return pd.DataFrame()
@@ -49,7 +133,16 @@ def _hist(ticker: str, period: str, interval: str, prepost: bool = False) -> pd.
     return df.dropna(subset=["close"])
 
 
+def _hist(ticker: str, period: str, interval: str, prepost: bool = False) -> pd.DataFrame:
+    df = _yahoo_chart(ticker, interval, period, prepost)
+    if df.empty:
+        df = _hist_yf(ticker, period, interval, prepost)
+    return df
+
+
 def _next_earnings(ticker: str) -> tuple[pd.Timestamp | None, str]:
+    if yf is None:
+        return None, "none"
     t = yf.Ticker(ticker)
     now = pd.Timestamp.now(tz=TZ)
     try:
@@ -108,10 +201,28 @@ def _atr_pct(daily: pd.DataFrame, n: int = 14) -> float:
     return float(atr / last * 100) if last else float("nan")
 
 
-def score_name(row: dict) -> dict:
+def _reuse_earnings(out: dict, prev: dict | None) -> None:
+    raw = (prev or {}).get("next_earnings")
+    if not raw:
+        return
+    try:
+        nxt = pd.Timestamp(raw)
+        if nxt.tzinfo is None:
+            nxt = nxt.tz_localize(TZ)
+        else:
+            nxt = nxt.tz_convert(TZ)
+        today = pd.Timestamp.now(tz=TZ).normalize()
+        days = (nxt.normalize() - today).days
+        out["next_earnings"] = str(nxt)
+        out["days_to_earnings"] = int(days)
+        out["earnings_soon"] = 0 <= days <= EARNINGS_WARN_DAYS
+    except (TypeError, ValueError):
+        return
+
+
+def score_name(row: dict, prev: dict | None = None) -> dict:
     ticker = row["ticker"]
     daily = _hist(ticker, "6mo", "1d")
-    intra = _hist(ticker, "5d", "5m", prepost=True)
     time.sleep(SLEEP_S)
 
     out = {
@@ -154,29 +265,18 @@ def score_name(row: dict) -> dict:
         dollar = daily["close"] * daily["volume"]
         out["adv_20_musd"] = float(dollar.tail(20).mean() / 1e6)
 
-    today = pd.Timestamp.now(tz=TZ).normalize()
-    if not intra.empty:
-        sess = intra[intra.index.tz_convert(TZ).normalize() == today]
-        if sess.empty:
-            last_day = intra.index.tz_convert(TZ).normalize().max()
-            sess = intra[intra.index.tz_convert(TZ).normalize() == last_day]
-        if not sess.empty:
-            hi, lo, cl = float(sess["high"].max()), float(sess["low"].min()), float(sess["close"].iloc[-1])
-            if cl:
-                out["today_range_pct"] = (hi - lo) / cl * 100
-            if "volume" in sess.columns and "volume" in daily.columns and daily["volume"].tail(20).mean():
-                # scale 5m session volume vs 20d average daily volume
-                out["rvol_20"] = float(sess["volume"].sum() / daily["volume"].tail(20).mean())
+    # Last daily bar is today's (partial) session during RTH — enough for fuel.
+    if last and {"high", "low"}.issubset(daily.columns):
+        hi, lo = float(daily["high"].iloc[-1]), float(daily["low"].iloc[-1])
+        out["today_range_pct"] = (hi - lo) / last * 100
 
-    nxt, src = _next_earnings(ticker)
-    if nxt is not None:
-        out["next_earnings"] = str(nxt)
-        days = (nxt.tz_convert(TZ).normalize() - today).days
-        out["days_to_earnings"] = int(days)
-        out["earnings_soon"] = 0 <= days <= EARNINGS_WARN_DAYS
-        out["note"] = f"earnings source={src}"
+    # Earnings dates go through Yahoo query1 (crumb), which 429s and hangs refresh.
+    # Reuse the last good date from the cached board and recompute days-to-print.
+    _reuse_earnings(out, prev)
 
     notes = []
+    if out.get("next_earnings"):
+        notes.append("earnings source=cached")
     if out["too_young"]:
         notes.append(f"under {MIN_HISTORY_DAYS} daily bars — treat as young")
     if out["earnings_soon"]:
@@ -204,7 +304,8 @@ def score_name(row: dict) -> dict:
 
 
 def build_watchlist() -> pd.DataFrame:
-    rows = [score_name(item) for item in WATCHLIST]
+    prev = {r.get("ticker"): r for r in (load_cached_watchlist().get("rows") or []) if r.get("ticker")}
+    rows = [score_name(item, prev.get(item["ticker"])) for item in WATCHLIST]
     df = pd.DataFrame(rows)
     df = df.sort_values(["too_young", "fuel_score"], ascending=[True, False], na_position="last")
     return df.reset_index(drop=True)

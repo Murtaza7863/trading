@@ -8,11 +8,12 @@ Log trades in the browser. They stay in `localStorage` on your machine and are n
 
 ## Use the site
 
-Open the URL above. Refreshing the Yahoo board only works on your laptop:
+Open the URL above. **Refresh board** reloads the latest committed snapshot (a GitHub Action updates it on weekday sessions).
+
+For a live Yahoo pull, run the desk on your laptop:
 
 ```bash
-python run_watchlist.py   # updates docs/watchlist.json
-python run_web.py         # local desk at http://127.0.0.1:8787
+python run_web.py         # http://127.0.0.1:8787
 ```
 
-Then commit `docs/watchlist.json` if you want the hosted board updated.
+Then click **Refresh board**. That scores the tape from Yahoo `query2` (usually a few seconds).

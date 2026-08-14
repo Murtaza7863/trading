@@ -97,8 +97,11 @@ def watchlist():
 
 @app.post("/api/watchlist/refresh")
 def refresh_watchlist():
-    df = build_watchlist()
-    write_watchlist(df, tape_note=TAPE_NOTE)
+    try:
+        df = build_watchlist()
+        write_watchlist(df, tape_note=TAPE_NOTE)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Yahoo refresh failed: {exc}") from exc
     return {
         "generated": load_cached_watchlist().get("generated"),
         "rows": records(df),

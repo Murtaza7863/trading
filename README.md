@@ -16,4 +16,6 @@ For a live Yahoo pull, run the desk on your laptop:
 python run_web.py         # http://127.0.0.1:8787
 ```
 
-Then click **Refresh board**. That scores the tape from Yahoo `query2` (usually a few seconds).
+Then click **Refresh board**. That scores Yahoo daily plus 5-minute premarket / cash / night bars.
+
+Fuel ranks names that are moving *now* (range vs ATR, rvol, extended hours), not names that were merely wild last month. Lean is a tape read, not a forecast.

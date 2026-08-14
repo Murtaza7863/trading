@@ -24,7 +24,7 @@ from src.journal import (  # noqa: E402
     stats,
     update_trade,
 )
-from src.watchlist import TAPE_NOTE, build_watchlist, load_cached_watchlist, records, write_watchlist  # noqa: E402
+from src.watchlist import FUEL_LEGEND, TAPE_NOTE, build_watchlist, load_cached_watchlist, records, write_watchlist  # noqa: E402
 
 DOCS = ROOT / "docs"
 
@@ -92,6 +92,7 @@ def watchlist():
         **cached,
         "tape": TAPE_NOTE,
         "ban": WATCHLIST_SKIP,
+        "fuel_legend": FUEL_LEGEND,
     }
 
 
@@ -107,6 +108,7 @@ def refresh_watchlist():
         "rows": records(df),
         "tape": TAPE_NOTE,
         "ban": WATCHLIST_SKIP,
+        "fuel_legend": FUEL_LEGEND,
     }
 
 

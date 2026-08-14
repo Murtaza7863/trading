@@ -8,7 +8,7 @@ from datetime import datetime
 
 import pandas as pd
 
-from .config import INSTRUMENTS, JOURNAL_PATH, PROC_DIR, TZ, WATCHLIST_SKIP
+from .config import INSTRUMENTS, JOURNAL_PATH, PROC_DIR, TZ, WATCHLIST_SKIP, et_session
 
 RTH_CLOSE_HOUR = 16
 
@@ -19,12 +19,17 @@ def _now() -> pd.Timestamp:
 
 def et_clock() -> dict:
     now = _now()
+    sess = et_session(now.to_pydatetime())
     return {
         "et": str(now),
-        "et_local": now.strftime("%Y-%m-%dT%H:%M"),
-        "et_label": now.strftime("%a %d %b %Y, %H:%M ET"),
-        "after_close": not (now.hour > 9 or (now.hour == 9 and now.minute >= 30)) or now.hour >= 16,
-        "morning_grind": 10 <= now.hour < 12,
+        "et_local": sess["et_local"],
+        "et_label": sess["et_label"],
+        "session": sess["kind"],
+        "after_close": sess["after_close"],
+        "morning_grind": sess["morning_grind"],
+        "premarket": sess["premarket"],
+        "afterhours": sess["afterhours"],
+        "weekend": sess["weekend"],
     }
 
 

@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Desk — same-session tape</title>
-    <link rel="stylesheet" href="styles.css?v=3" />
+    <link rel="stylesheet" href="styles.css?v=4" />
   </head>
   <body>
     <header class="top">
@@ -79,18 +79,20 @@
           <button id="refresh" class="btn ghost" type="button">Refresh board</button>
         </div>
         <p id="tape" class="tape"></p>
+        <p id="fuel-legend" class="tape"></p>
         <div class="table-wrap">
           <table>
             <thead>
               <tr>
                 <th>Name</th>
                 <th class="num">Fuel</th>
+                <th>Lean</th>
                 <th class="num">Last</th>
-                <th class="num">1d</th>
-                <th class="num">5d</th>
-                <th class="num">Vol 20d</th>
+                <th class="num">Premarket</th>
+                <th class="num">Cash</th>
+                <th class="num">Night</th>
+                <th class="num">vs close</th>
                 <th class="num">ATR</th>
-                <th class="num">Today rng</th>
                 <th>2x</th>
                 <th>Flags</th>
               </tr>
@@ -168,6 +170,6 @@
       </form>
     </dialog>
 
-    <script src="app.js?v=3"></script>
+    <script src="app.js?v=4"></script>
   </body>
 </html>

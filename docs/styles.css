@@ -14,7 +14,7 @@
 html, body { margin: 0; background: var(--bg); color: var(--text); }
 body {
   font: 15px/1.45 "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
-  max-width: 1180px;
+  max-width: 1320px;
   margin: 0 auto;
   padding: 28px 20px 64px;
 }
@@ -182,6 +182,8 @@ input, select {
 }
 .pill.bad { background: #2a1c1a; color: var(--down); }
 .pill.ok { background: #1b241c; color: var(--up); }
+.pill.strong { font-weight: 700; letter-spacing: 0.02em; }
+.sess { display: block; }
 
 .tape {
   font-family: ui-sans-serif, system-ui, sans-serif;

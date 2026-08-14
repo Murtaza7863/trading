@@ -86,12 +86,38 @@ function etClock() {
   const mm = String(minute).padStart(2, "0");
   const mins = hour * 60 + minute;
   const inRth = mins >= 9 * 60 + 30 && mins < 16 * 60;
+  const wd = grab("weekday");
+  const weekend = wd === "Sat" || wd === "Sun";
+  let session = "overnight";
+  if (weekend) session = "weekend";
+  else if (mins >= 4 * 60 && mins < 9 * 60 + 30) session = "premarket";
+  else if (inRth) session = "rth";
+  else if (mins >= 16 * 60 && mins < 20 * 60) session = "afterhours";
   return {
     et_local: `${y}-${m}-${d}T${hh}:${mm}`,
     et_label: `${grab("weekday")} ${d} ${grab("month")} ${y}, ${hh}:${mm} ET`,
-    after_close: !inRth,
-    morning_grind: hour >= 10 && hour < 12,
+    session,
+    after_close:
+      session === "afterhours" ||
+      session === "overnight" ||
+      session === "weekend",
+    morning_grind: inRth && hour >= 10 && hour < 12,
+    premarket: session === "premarket",
+    afterhours: session === "afterhours",
+    weekend,
   };
+}
+
+function clockNote(c) {
+  if (c.session === "premarket")
+    return "Premarket 4:00–9:30 ET. Use PM fuel to look. Do not hold 2x through the open just because PM is green.";
+  if (c.session === "afterhours")
+    return "Night session 16:00–20:00 ET. Flatten 2x — overnight is where the old book got hurt.";
+  if (c.session === "overnight" || c.session === "weekend")
+    return "Cash and night tape are closed. Board is the last session. Do not carry 2x.";
+  if (c.morning_grind)
+    return "10:00–12:00 ET was the weakest window on the old book.";
+  return "Cash session. Same-day only. Flatten before 16:00 ET.";
 }
 
 function loadStore() {
@@ -315,12 +341,47 @@ function renderJournal(trades) {
     .join("");
 }
 
+function sessCell(ret, rng, extra) {
+  if (ret == null && rng == null) {
+    return extra ? `<span class="muted">${extra}</span>` : "—";
+  }
+  const cls = ret > 0 ? "up" : ret < 0 ? "down" : "";
+  const sub = [rng != null ? `${Number(rng).toFixed(1)}% rng` : "", extra]
+    .filter(Boolean)
+    .join(" · ");
+  return `<span class="${cls}">${pct(ret)}</span>${sub ? `<div class="muted">${sub}</div>` : ""}`;
+}
+
+function leanCell(r) {
+  const lean = r.lean || "flat";
+  const cls =
+    lean === "up" ? "ok" : lean === "down" ? "bad" : lean === "mixed" ? "" : "";
+  const arrow =
+    lean === "up" ? "↑" : lean === "down" ? "↓" : lean === "mixed" ? "↕" : "·";
+  const label =
+    lean === "up"
+      ? "Up"
+      : lean === "down"
+        ? "Down"
+        : lean === "mixed"
+          ? "Mixed"
+          : "Flat";
+  const strong = r.lean_strength === 2 ? " strong" : "";
+  return `<span class="pill ${cls}${strong}">${arrow} ${label}</span><div class="muted">${r.lean_why || "tape read, not a signal"}</div>`;
+}
+
 function renderWatchlist(data) {
   const rows = data.rows || [];
   $("#wl-meta").textContent = data.generated
-    ? `Board from ${data.generated}. Rank is fuel, not a buy.`
+    ? `Board from ${data.generated}. Fuel = is it moving now. Lean = tape read, not a buy.`
     : "No board file yet.";
   $("#tape").textContent = data.tape || "";
+  const legend = $("#fuel-legend");
+  if (legend) {
+    legend.textContent =
+      data.fuel_legend ||
+      "Fuel weights live range vs ATR, then rvol, then premarket/night. Historical vol no longer dominates. Lean is gap / VWAP / session prints — the old book had no directional edge.";
+  }
   $("#sym-list").innerHTML = rows
     .flatMap((r) => [r.ticker, r.vehicle].filter(Boolean))
     .map((s) => `<option value="${s}"></option>`)
@@ -334,16 +395,22 @@ function renderWatchlist(data) {
         flags.push(`<span class="pill bad">Earnings soon</span>`);
       if (r.ok_vehicle) flags.push(`<span class="pill ok">${r.vehicle}</span>`);
       else flags.push(`<span class="pill">Underlying only</span>`);
-      const retCls = r.ret_1d_pct > 0 ? "up" : r.ret_1d_pct < 0 ? "down" : "";
+      const nightExtra =
+        r.night_from === "last_night"
+          ? "last night"
+          : r.night_from === "ah"
+            ? "AH"
+            : "";
       return `<tr data-sym="${r.ok_vehicle ? r.vehicle : r.ticker}">
         <td><strong>${r.ticker}</strong><div class="muted">${r.name} · ${r.group}</div></td>
-        <td class="num"><span class="fuel" style="width:${w}px"></span>${num(r.fuel_score)}</td>
+        <td class="num"><span class="fuel" style="width:${w}px"></span>${num(r.fuel_score)}<div class="muted">${r.fuel_note || ""}</div></td>
+        <td>${leanCell(r)}</td>
         <td class="num">${num(r.last, 2)}</td>
-        <td class="num ${retCls}">${pct(r.ret_1d_pct)}</td>
-        <td class="num">${pct(r.ret_5d_pct)}</td>
-        <td class="num">${num(r.vol_20d_ann_pct, 1)}%</td>
+        <td class="num">${sessCell(r.pm_ret_pct, r.pm_range_pct)}</td>
+        <td class="num">${sessCell(r.rth_ret_pct, r.rth_range_pct)}</td>
+        <td class="num">${sessCell(r.ah_ret_pct, r.ah_range_pct, nightExtra)}</td>
+        <td class="num ${r.ret_1d_pct > 0 ? "up" : r.ret_1d_pct < 0 ? "down" : ""}">${pct(r.ret_1d_pct)}</td>
         <td class="num">${num(r.atr14_pct, 2)}%</td>
-        <td class="num">${num(r.today_range_pct, 2)}%</td>
         <td>${r.ok_vehicle ? r.vehicle : "—"}</td>
         <td>${flags.join(" ")}</td>
       </tr>`;
@@ -384,11 +451,7 @@ async function loadAll() {
   }
 
   $("#clock").textContent = clock.et_label;
-  $("#clock-note").textContent = clock.after_close
-    ? "Cash session is closed. Do not carry 2x/3x overnight."
-    : clock.morning_grind
-      ? "10:00–12:00 ET was the weakest window on the old book."
-      : "Times are America/New_York.";
+  $("#clock-note").textContent = clockNote(clock);
   $("#log-form").entry_time.value = clock.et_local;
   $("#tab-book").hidden = !apiMode;
   $("#refresh").hidden = false;

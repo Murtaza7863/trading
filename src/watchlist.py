@@ -17,7 +17,17 @@ try:
 except ImportError:
     yf = None
 
-from .config import REPORT_DIR, ROOT, TABLE_DIR, TZ, WATCHLIST, WATCHLIST_SKIP
+from .config import (
+    REPORT_DIR,
+    ROOT,
+    TABLE_DIR,
+    TZ,
+    WATCHLIST,
+    WATCHLIST_SKIP,
+    et_session,
+    expected_range_frac,
+    expected_volume_frac,
+)
 
 MIN_HISTORY_DAYS = 60
 EARNINGS_WARN_DAYS = 2
@@ -201,6 +211,249 @@ def _atr_pct(daily: pd.DataFrame, n: int = 14) -> float:
     return float(atr / last * 100) if last else float("nan")
 
 
+def _finite(x) -> bool:
+    return x is not None and np.isfinite(x)
+
+
+def _printed_move(range_pct, ret_pct) -> float:
+    vals = [x for x in (range_pct, abs(ret_pct) if _finite(ret_pct) else np.nan) if _finite(x)]
+    return max(vals) if vals else np.nan
+
+
+def _clip(x: float, lo: float, hi: float) -> float:
+    return float(np.clip(x, lo, hi))
+
+
+def _mins(idx: pd.DatetimeIndex) -> pd.Series:
+    return idx.hour * 60 + idx.minute
+
+
+def _slice_session(df: pd.DataFrame, day, start_min: int, end_min: int) -> pd.DataFrame:
+    if df is None or df.empty:
+        return pd.DataFrame()
+    day = pd.Timestamp(day)
+    if day.tzinfo is None:
+        day = day.tz_localize(TZ)
+    day = day.tz_convert(TZ).normalize()
+    part = df[df.index.normalize() == day]
+    if part.empty:
+        return part
+    m = _mins(part.index)
+    return part[(m >= start_min) & (m < end_min)]
+
+
+def _sess_stats(bars: pd.DataFrame, ref: float | None) -> dict:
+    out = {
+        "last": np.nan,
+        "open": np.nan,
+        "high": np.nan,
+        "low": np.nan,
+        "range_pct": np.nan,
+        "ret_pct": np.nan,
+        "volume": np.nan,
+        "vwap": np.nan,
+        "n": 0,
+    }
+    if bars is None or bars.empty:
+        return out
+    bars = bars.dropna(subset=["close"])
+    if bars.empty:
+        return out
+    last = float(bars["close"].iloc[-1])
+    hi = float(bars["high"].max())
+    lo = float(bars["low"].min())
+    close_hi = float(bars["close"].max())
+    close_lo = float(bars["close"].min())
+    # After-hours often has one-tick spikes. If wicks dwarf the close path, use closes.
+    if last and (hi - lo) > 3 * max(close_hi - close_lo, last * 0.002):
+        hi, lo = close_hi, close_lo
+    first = float(bars["open"].iloc[0]) if "open" in bars.columns and pd.notna(bars["open"].iloc[0]) else float(bars["close"].iloc[0])
+    out.update({"last": last, "open": first, "high": hi, "low": lo, "n": int(len(bars))})
+    if last:
+        out["range_pct"] = (hi - lo) / last * 100
+    if _finite(ref) and ref:
+        out["ret_pct"] = (last / float(ref) - 1) * 100
+    if "volume" in bars.columns:
+        vol = float(bars["volume"].fillna(0).sum())
+        out["volume"] = vol
+        if vol > 0:
+            typical = (bars["high"] + bars["low"] + bars["close"]) / 3
+            out["vwap"] = float((typical * bars["volume"].fillna(0)).sum() / vol)
+    return out
+
+
+def _prior_close(daily: pd.DataFrame, now: pd.Timestamp) -> float:
+    last_idx = daily.index[-1]
+    if last_idx.tz_convert(TZ).normalize() >= now.normalize() and len(daily) >= 2:
+        return float(daily["close"].iloc[-2])
+    return float(daily["close"].iloc[-1])
+
+
+def _tape_lean(
+    prior: float,
+    last: float,
+    atr: float,
+    pm: dict,
+    rth: dict,
+    ah: dict,
+    vwap: float,
+    include_ah_range: bool,
+) -> tuple[str, str, int]:
+    """Describe where the tape is. Not a forecast — the book had no directional edge."""
+    thresh = max(0.12, 0.06 * atr) if _finite(atr) else 0.15
+    votes: list[int] = []
+    bits: list[str] = []
+
+    def vote(delta_pct: float, label: str) -> None:
+        if not _finite(delta_pct) or abs(delta_pct) < thresh:
+            return
+        side = 1 if delta_pct > 0 else -1
+        votes.append(side)
+        bits.append(f"{label} {delta_pct:+.1f}%")
+
+    if _finite(pm.get("ret_pct")):
+        vote(float(pm["ret_pct"]), "PM")
+        vs_close_done = True
+    else:
+        vs_close_done = False
+    if _finite(rth.get("ret_pct")):
+        vote(float(rth["ret_pct"]), "cash")
+        vs_close_done = True
+    if _finite(ah.get("ret_pct")):
+        vote(float(ah["ret_pct"]), "night")
+    if not vs_close_done and _finite(last) and _finite(prior) and prior:
+        vote((last / prior - 1) * 100, "vs last close")
+    if _finite(last) and _finite(vwap) and vwap:
+        vote((last / vwap - 1) * 100, "vs VWAP")
+
+    envelope_hi = max(
+        [
+            x
+            for x in (
+                pm.get("high"),
+                rth.get("high"),
+                ah.get("high") if include_ah_range else np.nan,
+            )
+            if _finite(x)
+        ],
+        default=np.nan,
+    )
+    envelope_lo = min(
+        [
+            x
+            for x in (
+                pm.get("low"),
+                rth.get("low"),
+                ah.get("low") if include_ah_range else np.nan,
+            )
+            if _finite(x)
+        ],
+        default=np.nan,
+    )
+    if _finite(last) and _finite(envelope_hi) and _finite(envelope_lo) and envelope_hi > envelope_lo:
+        mid = (envelope_hi + envelope_lo) / 2
+        loc = (last - mid) / (envelope_hi - envelope_lo)
+        if abs(loc) >= 0.15:
+            votes.append(1 if loc > 0 else -1)
+            bits.append("upper half of range" if loc > 0 else "lower half of range")
+
+    if not votes:
+        return "flat", "no lean yet", 0
+    score = sum(votes) / len(votes)
+    if score >= 0.5:
+        lean = "up"
+    elif score <= -0.5:
+        lean = "down"
+    else:
+        lean = "mixed"
+    why = ", ".join(bits[:3]) if bits else "mixed prints"
+    strength = 0
+    if lean in {"up", "down"}:
+        mag = abs((last / prior - 1) * 100) if _finite(last) and _finite(prior) and prior else 0
+        atr_frac = mag / atr if _finite(atr) and atr else 0
+        if abs(score) >= 0.8 or atr_frac >= 0.35:
+            strength = 2
+        else:
+            strength = 1
+    return lean, why, strength
+
+
+def _fuel_score(
+    *,
+    total_range: float,
+    atr: float,
+    rvol: float,
+    pm_range: float,
+    ah_range: float,
+    range_frac: float,
+) -> tuple[float, str]:
+    """
+    Fuel = is the name moving *now*, not how wild it was last month.
+
+    Old formula was ~65% historical vol/ATR, so SNDK-style names stayed on top
+    even when today was quiet. This one is mostly live range vs this name's ATR,
+    plus whether volume is actually showing up, plus whether premarket/night
+    already printed a real range.
+    """
+    parts: dict[str, float] = {}
+    notes: list[str] = []
+
+    if _finite(total_range) and _finite(atr) and atr > 0.2:
+        expected = max(range_frac or 1.0, 0.10)
+        live = _clip((total_range / atr) / expected / 1.10, 0, 1.6)
+        parts["live"] = live
+        notes.append(f"{total_range / atr:.1f}× ATR")
+    elif _finite(total_range):
+        parts["live"] = _clip(total_range / 4.0, 0, 1.4)
+        notes.append(f"{total_range:.1f}% range")
+
+    if _finite(rvol):
+        parts["rvol"] = _clip(rvol / 1.0, 0, 1.5)
+        if rvol >= 0.8:
+            notes.append(f"rvol {rvol:.1f}×")
+
+    ext_raw = 0.0
+    where = []
+    if _finite(pm_range) and _finite(atr) and atr > 0:
+        ext_raw += pm_range / atr
+        if pm_range / atr >= 0.18 or pm_range >= 1.0:
+            where.append("PM")
+    elif _finite(pm_range) and pm_range >= 0.8:
+        ext_raw += pm_range / 3.0
+        where.append("PM")
+    if _finite(ah_range) and _finite(atr) and atr > 0:
+        ext_raw += ah_range / atr
+        if ah_range / atr >= 0.18 or ah_range >= 1.0:
+            where.append("night")
+    elif _finite(ah_range) and ah_range >= 0.8:
+        ext_raw += ah_range / 3.0
+        where.append("night")
+    if ext_raw:
+        parts["ext"] = _clip(ext_raw, 0, 1.3)
+        if where:
+            notes.append("fuel in " + "+".join(where))
+
+    if _finite(atr):
+        # Same-session 2x needs some typical range, but this must not dominate.
+        if atr < 1.5:
+            parts["struct"] = 0.35 * (atr / 1.5)
+        elif atr < 7:
+            parts["struct"] = 0.35 + 0.65 * (atr - 1.5) / 5.5
+        else:
+            parts["struct"] = 1.0
+
+    weights = {"live": 0.42, "rvol": 0.23, "ext": 0.20, "struct": 0.15}
+    have = {k: parts[k] for k in weights if k in parts}
+    if not have:
+        return float("nan"), "no tape yet"
+    wsum = sum(weights[k] for k in have)
+    fuel = sum(weights[k] * have[k] for k in have) / wsum
+    if have.get("live", 1) < 0.28 and have.get("ext", 0) < 0.25 and have.get("rvol", 1) < 0.45:
+        notes = ["quiet vs ATR"] + [n for n in notes if "ATR" not in n]
+    note = " · ".join(notes[:3]) if notes else "thin tape"
+    return float(fuel), note
+
+
 def _reuse_earnings(out: dict, prev: dict | None) -> None:
     raw = (prev or {}).get("next_earnings")
     if not raw:
@@ -222,7 +475,10 @@ def _reuse_earnings(out: dict, prev: dict | None) -> None:
 
 def score_name(row: dict, prev: dict | None = None) -> dict:
     ticker = row["ticker"]
+    now = pd.Timestamp.now(tz=TZ)
+    sess = et_session(now.to_pydatetime())
     daily = _hist(ticker, "6mo", "1d")
+    intra = _hist(ticker, "5d", "5m", prepost=True)
     time.sleep(SLEEP_S)
 
     out = {
@@ -234,6 +490,15 @@ def score_name(row: dict, prev: dict | None = None) -> dict:
         "vol_20d_ann_pct": np.nan,
         "atr14_pct": np.nan,
         "today_range_pct": np.nan,
+        "pm_ret_pct": np.nan,
+        "pm_range_pct": np.nan,
+        "rth_ret_pct": np.nan,
+        "rth_range_pct": np.nan,
+        "ah_ret_pct": np.nan,
+        "ah_range_pct": np.nan,
+        "night_from": "",
+        "gap_pct": np.nan,
+        "vwap": np.nan,
         "rvol_20": np.nan,
         "adv_20_musd": np.nan,
         "history_days": 0,
@@ -242,6 +507,11 @@ def score_name(row: dict, prev: dict | None = None) -> dict:
         "days_to_earnings": np.nan,
         "earnings_soon": False,
         "fuel_score": np.nan,
+        "fuel_note": "",
+        "lean": "flat",
+        "lean_why": "",
+        "lean_strength": 0,
+        "session": sess["kind"],
         "note": "",
     }
     if daily.empty or len(daily) < 15:
@@ -251,28 +521,135 @@ def score_name(row: dict, prev: dict | None = None) -> dict:
 
     out["history_days"] = int(len(daily))
     out["too_young"] = len(daily) < MIN_HISTORY_DAYS
-    last = float(daily["close"].iloc[-1])
-    out["last"] = last
-    if len(daily) >= 2:
-        out["ret_1d_pct"] = float(daily["close"].iloc[-1] / daily["close"].iloc[-2] - 1) * 100
-    if len(daily) >= 6:
-        out["ret_5d_pct"] = float(daily["close"].iloc[-1] / daily["close"].iloc[-6] - 1) * 100
+    prior = _prior_close(daily, now)
+    out["atr14_pct"] = _atr_pct(daily)
     rets = daily["close"].pct_change().dropna()
     if len(rets) >= 20:
         out["vol_20d_ann_pct"] = float(rets.tail(20).std() * np.sqrt(252) * 100)
-    out["atr14_pct"] = _atr_pct(daily)
+    if len(daily) >= 6:
+        out["ret_5d_pct"] = float(daily["close"].iloc[-1] / daily["close"].iloc[-6] - 1) * 100
+    adv_shares = np.nan
     if "volume" in daily.columns:
         dollar = daily["close"] * daily["volume"]
         out["adv_20_musd"] = float(dollar.tail(20).mean() / 1e6)
+        adv_shares = float(daily["volume"].tail(20).mean())
 
-    # Last daily bar is today's (partial) session during RTH — enough for fuel.
-    if last and {"high", "low"}.issubset(daily.columns):
+    pre_m = 4 * 60
+    rth_m = 9 * 60 + 30
+    close_m = 16 * 60
+    ah_m = 20 * 60
+
+    pm = _sess_stats(pd.DataFrame(), prior)
+    rth = _sess_stats(pd.DataFrame(), prior)
+    ah = _sess_stats(pd.DataFrame(), prior)
+    active_day = now.normalize()
+    complete_day = sess["kind"] in {"overnight", "weekend"}
+    if not intra.empty:
+        days = sorted(intra.index.normalize().unique())
+        if active_day not in days:
+            active_day = days[-1]
+            complete_day = True
+        pm = _sess_stats(_slice_session(intra, active_day, pre_m, rth_m), prior)
+        rth_bars = _slice_session(intra, active_day, rth_m, close_m)
+        rth = _sess_stats(rth_bars, prior)
+        ah_bars = _slice_session(intra, active_day, close_m, ah_m)
+        night_from = "ah"
+        prior_days = [d for d in days if d < active_day]
+        if ah_bars.empty and prior_days:
+            ah_bars = _slice_session(intra, prior_days[-1], close_m, ah_m)
+            night_from = "last_night"
+        if night_from == "ah":
+            night_ref = float(rth_bars["close"].iloc[-1]) if not rth_bars.empty else prior
+        elif prior_days:
+            prev_rth = _slice_session(intra, prior_days[-1], rth_m, close_m)
+            night_ref = float(prev_rth["close"].iloc[-1]) if not prev_rth.empty else prior
+        else:
+            night_ref = prior
+        ah = _sess_stats(ah_bars, night_ref)
+        out["night_from"] = night_from if not ah_bars.empty else ""
+
+    out["pm_ret_pct"] = pm["ret_pct"]
+    out["pm_range_pct"] = pm["range_pct"]
+    out["rth_ret_pct"] = rth["ret_pct"]
+    out["rth_range_pct"] = rth["range_pct"]
+    out["ah_ret_pct"] = ah["ret_pct"]
+    out["ah_range_pct"] = ah["range_pct"]
+    if _finite(pm.get("open")) and prior:
+        out["gap_pct"] = (float(pm["open"]) / prior - 1) * 100
+    elif _finite(rth.get("open")) and prior:
+        out["gap_pct"] = (float(rth["open"]) / prior - 1) * 100
+
+    last_candidates = [pm["last"], rth["last"], ah["last"] if out.get("night_from") == "ah" else np.nan]
+    last = next((float(x) for x in reversed(last_candidates) if _finite(x)), np.nan)
+    if not _finite(last):
+        last = float(daily["close"].iloc[-1])
+    out["last"] = last
+    if prior:
+        out["ret_1d_pct"] = (last / prior - 1) * 100
+
+    highs = [x for x in (pm["high"], rth["high"], ah["high"] if out.get("night_from") == "ah" else np.nan) if _finite(x)]
+    lows = [x for x in (pm["low"], rth["low"], ah["low"] if out.get("night_from") == "ah" else np.nan) if _finite(x)]
+    if highs and lows and last:
+        out["today_range_pct"] = (max(highs) - min(lows)) / last * 100
+    elif last and {"high", "low"}.issubset(daily.columns):
         hi, lo = float(daily["high"].iloc[-1]), float(daily["low"].iloc[-1])
         out["today_range_pct"] = (hi - lo) / last * 100
 
+    vwap = np.nan
+    if sess["kind"] == "premarket" and _finite(pm.get("vwap")):
+        vwap = pm["vwap"]
+    elif sess["kind"] in {"rth", "overnight", "weekend"} and _finite(rth.get("vwap")):
+        vwap = rth["vwap"]
+    elif sess["kind"] == "afterhours" and _finite(ah.get("vwap")):
+        vwap = ah["vwap"]
+    elif _finite(rth.get("vwap")):
+        vwap = rth["vwap"]
+    elif _finite(pm.get("vwap")):
+        vwap = pm["vwap"]
+    out["vwap"] = vwap
+
+    vol_so_far = 0.0
+    for block, use in ((pm, True), (rth, True), (ah, out.get("night_from") == "ah")):
+        if use and _finite(block.get("volume")):
+            vol_so_far += float(block["volume"])
+    if vol_so_far and _finite(adv_shares) and adv_shares > 0:
+        frac = expected_volume_frac(sess["kind"], int(sess["mins"]), complete=complete_day)
+        out["rvol_20"] = vol_so_far / adv_shares / max(frac, 0.03)
+
     # Earnings dates go through Yahoo query1 (crumb), which 429s and hangs refresh.
-    # Reuse the last good date from the cached board and recompute days-to-print.
     _reuse_earnings(out, prev)
+
+    lean, why, strength = _tape_lean(
+        prior,
+        last,
+        out["atr14_pct"],
+        pm,
+        rth,
+        ah,
+        vwap,
+        include_ah_range=out.get("night_from") == "ah",
+    )
+    out["lean"] = lean
+    out["lean_why"] = why
+    out["lean_strength"] = strength
+
+    if sess["kind"] in {"premarket", "overnight"} or out.get("night_from") == "ah":
+        ah_move = _printed_move(out["ah_range_pct"], out["ah_ret_pct"])
+    else:
+        ah_move = np.nan
+    printed = _printed_move(out["today_range_pct"], out["ret_1d_pct"])
+    if _finite(out["gap_pct"]):
+        printed = max([x for x in (printed, abs(out["gap_pct"])) if _finite(x)], default=printed)
+    fuel, fuel_note = _fuel_score(
+        total_range=printed,
+        atr=out["atr14_pct"],
+        rvol=out["rvol_20"],
+        pm_range=_printed_move(out["pm_range_pct"], out["pm_ret_pct"]),
+        ah_range=ah_move,
+        range_frac=expected_range_frac(sess["kind"], int(sess["mins"]), complete=complete_day),
+    )
+    out["fuel_score"] = fuel
+    out["fuel_note"] = fuel_note
 
     notes = []
     if out.get("next_earnings"):
@@ -283,23 +660,15 @@ def score_name(row: dict, prev: dict | None = None) -> dict:
         notes.append("earnings within 2 sessions — flatten, do not hold through print")
     if row["group"] == "benchmark":
         notes.append("benchmark only")
-    if row["ticker"] == "SOXX" or row["ticker"] == "SMH":
+    if row["ticker"] in {"SOXX", "SMH"}:
         notes.append("sector tape; do not jump to SOXL/SOXS overnight")
     if not row.get("ok_vehicle"):
         notes.append("no established 2x on this board — underlying same-session only, or skip")
+    if sess["kind"] in {"premarket", "afterhours", "overnight"}:
+        notes.append("extended hours — look, do not carry 2x into the next cash session")
     if notes:
         extra = "; ".join(notes)
         out["note"] = f"{out['note']}; {extra}" if out["note"] else extra
-
-    # Fuel = how much the name typically moves. Not direction. Not a buy.
-    parts = []
-    if np.isfinite(out["vol_20d_ann_pct"]):
-        parts.append(0.45 * min(out["vol_20d_ann_pct"] / 80.0, 1.5))
-    if np.isfinite(out["atr14_pct"]):
-        parts.append(0.35 * min(out["atr14_pct"] / 5.0, 1.5))
-    if np.isfinite(out["today_range_pct"]):
-        parts.append(0.20 * min(out["today_range_pct"] / 6.0, 1.5))
-    out["fuel_score"] = float(sum(parts)) if parts else float("nan")
     return out
 
 
@@ -322,7 +691,7 @@ def write_watchlist(df: pd.DataFrame, tape_note: str = "") -> dict[str, str]:
     lines = [
         "# Same-session volatility board",
         "",
-        "**Not a buy list. Not a bot. Not live trading.** Ranked by how much the name typically moves (20-day vol, 14-day ATR, today's range). High score = more fuel for a same-day click, not a reason to buy.",
+        "**Not a buy list. Not a bot. Not live trading.** Ranked by **fuel**: today's live range vs this name's ATR, whether volume is actually showing up, and whether premarket / night already printed a real move. High fuel = the tape is active, not a reason to buy. **Lean** is a tape read (gap, VWAP, session prints) — not a forecast. The old book had no directional edge.",
         "",
         f"Generated: {now}",
         "",
@@ -355,14 +724,22 @@ def write_watchlist(df: pd.DataFrame, tape_note: str = "") -> dict[str, str]:
             "vehicle",
             "ok_vehicle",
             "last",
+            "lean",
+            "lean_why",
+            "fuel_score",
+            "fuel_note",
+            "pm_ret_pct",
+            "pm_range_pct",
+            "rth_ret_pct",
+            "rth_range_pct",
+            "ah_ret_pct",
+            "ah_range_pct",
+            "gap_pct",
             "ret_1d_pct",
-            "ret_5d_pct",
-            "vol_20d_ann_pct",
             "atr14_pct",
             "today_range_pct",
             "rvol_20",
             "adv_20_musd",
-            "fuel_score",
             "days_to_earnings",
             "earnings_soon",
             "too_young",
@@ -378,13 +755,13 @@ def write_watchlist(df: pd.DataFrame, tape_note: str = "") -> dict[str, str]:
     for row in fmt.itertuples(index=False):
         lines.append("| " + " | ".join(map(str, row)) + " |")
     lines.append("")
-    lines.append("Yahoo Finance daily + 5-minute bars. Earnings dates from Yahoo when available. Empty cells mean the download failed, not that vol is zero.")
+    lines.append("Yahoo Finance daily + 5-minute extended-hours bars (premarket 4:00–9:30 ET, cash 9:30–16:00, night 16:00–20:00). Lean is a description of the tape, not a buy/sell. Empty cells mean the download failed.")
     lines.append("")
     md_path.write_text("\n".join(lines))
     payload = {
         "generated": now,
         "n": int(len(df)),
-        "top": df.head(8)[["ticker", "fuel_score", "vol_20d_ann_pct", "today_range_pct"]].to_dict(
+        "top": df.head(8)[["ticker", "fuel_score", "lean", "pm_ret_pct", "ah_ret_pct", "today_range_pct"]].to_dict(
             orient="records"
         ),
     }
@@ -395,6 +772,7 @@ def write_watchlist(df: pd.DataFrame, tape_note: str = "") -> dict[str, str]:
         "rows": recs,
         "tape": tape_note or TAPE_NOTE,
         "ban": WATCHLIST_SKIP,
+        "fuel_legend": FUEL_LEGEND,
     }
     (TABLE_DIR / "watchlist.json").write_text(json.dumps(payload_board, indent=2, default=_json_val))
     docs = ROOT / "docs"
@@ -439,7 +817,14 @@ def load_cached_watchlist() -> dict:
     return {"generated": None, "rows": []}
 
 
+FUEL_LEGEND = (
+    "Fuel = live range vs this name's ATR (42%), time-adjusted rvol (23%), "
+    "premarket/night range (20%), typical ATR floor (15%). Quiet high-vol names "
+    "no longer sit on top. Lean is a tape read (gap, VWAP, session prints), not a forecast."
+)
+
 TAPE_NOTE = (
-    "Memory has been the live tape (Sandisk / Western Digital / Micron). "
-    "High fuel is a place to look, not a buy. Flatten before 16:00 ET."
+    "Fuel is live range vs ATR, plus rvol, plus premarket/night. "
+    "Lean is where the tape is vs last close and VWAP — not a forecast. "
+    "Flatten 2x before 16:00 ET. Do not carry overnight."
 )

@@ -428,12 +428,18 @@ function renderWatchlist(data) {
           : r.night_from === "ah"
             ? "AH"
             : "";
-      const left =
-        r.atr_left == null
-          ? "—"
-          : r.spent
-            ? "spent"
-            : `${Number(r.atr_left).toFixed(1)} ATR`;
+      const atr = r.atr14_pct;
+      const leftPct = r.atr_left;
+      let left = "—";
+      if (leftPct != null && Number.isFinite(Number(leftPct))) {
+        const sub =
+          atr != null
+            ? r.spent
+              ? "spent"
+              : `of ${Number(atr).toFixed(1)} ATR`
+            : "";
+        left = `${Number(leftPct).toFixed(1)}%${sub ? `<div class="muted">${sub}</div>` : ""}`;
+      }
       const hot = i < 3 ? " hot" : "";
       return `<tr class="${hot.trim()}" data-sym="${r.ok_vehicle ? r.vehicle : r.ticker}">
         <td class="rank">${i + 1}</td>

@@ -23,7 +23,7 @@ def main() -> int:
     print("==> scoring watchlist names from Yahoo")
     df = build_watchlist()
     paths = write_watchlist(df, tape_note=TAPE_NOTE)
-    print(df[["ticker", "fuel_score", "lean", "setup", "pm_ret_pct", "atr_used", "spent", "fuel_note"]].to_string(index=False))
+    print(df[["ticker", "fuel_score", "lean", "pm_ret_pct", "atr14_pct", "printed_pct", "atr_left", "spent"]].to_string(index=False))
     print(f"    csv: {paths['csv']}")
     print(f"    md:  {paths['md']}")
     print("done. look, don't buy from the rank.")

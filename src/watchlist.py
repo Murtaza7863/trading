@@ -374,22 +374,22 @@ def _fuel_score(*, printed: float, atr: float, rvol: float) -> tuple[float, str,
     if not _finite(printed) or not _finite(atr) or atr <= 0.15:
         return float("nan"), "no tape yet", float("nan"), float("nan"), False
     used = max(0.0, printed / atr)
-    left = max(0.0, 1.0 - used)
+    left_pct = max(0.0, atr - printed)
     core = 10.0 * math.tanh(used / 0.40)
     if _finite(rvol):
         core *= 0.90 + 0.10 * min(max(float(rvol), 0.0), 2.0)
     if atr < 1.8:
         core *= 0.50 + 0.50 * (atr / 1.8)
     fuel = _clip(core, 0, 10)
-    spent = used >= 0.70
+    spent = used >= 0.70 or left_pct <= 0.30 * atr
     notes = [f"{used:.1f}× ATR used"]
     if spent:
-        notes.append("spent — little left vs a normal day")
-    elif left >= 0.45:
-        notes.append(f"{left:.1f} ATR left")
+        notes.append(f"{left_pct:.1f}% left — spent")
+    else:
+        notes.append(f"{left_pct:.1f}% of {atr:.1f} ATR left")
     if fuel < 2.5:
         notes = ["quiet"] + [n for n in notes if "used" in n]
-    return float(fuel), " · ".join(notes[:2]), float(used), float(left), spent
+    return float(fuel), " · ".join(notes[:2]), float(used), float(left_pct), spent
 
 
 def _reuse_earnings(out: dict, prev: dict | None) -> None:
@@ -452,6 +452,7 @@ def score_name(row: dict, prev: dict | None = None) -> dict:
         "setup": "",
         "atr_used": np.nan,
         "atr_left": np.nan,
+        "printed_pct": np.nan,
         "spent": False,
         "split_pm": 0.0,
         "split_rth": 0.0,
@@ -598,6 +599,7 @@ def score_name(row: dict, prev: dict | None = None) -> dict:
     out["fuel_note"] = fuel_note
     out["atr_used"] = used
     out["atr_left"] = left
+    out["printed_pct"] = printed if _finite(printed) else np.nan
     out["spent"] = spent
     out["split_pm"] = abs(float(out["pm_ret_pct"])) if _finite(out["pm_ret_pct"]) else 0.0
     out["split_rth"] = abs(float(out["rth_ret_pct"])) if _finite(out["rth_ret_pct"]) else 0.0
@@ -685,6 +687,7 @@ def write_watchlist(df: pd.DataFrame, tape_note: str = "") -> dict[str, str]:
             "fuel_note",
             "atr_used",
             "atr_left",
+            "printed_pct",
             "spent",
             "setup",
             "pm_ret_pct",

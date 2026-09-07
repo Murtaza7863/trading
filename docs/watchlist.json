@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-07 18:24 UTC",
+  "generated": "2026-09-07 21:36 UTC",
   "rows": [
     {
       "ticker": "MU",
@@ -23,7 +23,7 @@
       "ah_range_pct": 0.39835459874870494,
       "night_from": "ah",
       "gap_pct": -4.342952978993331,
-      "vwap": 998.5037754644251,
+      "vwap": 1014.0604102040816,
       "rvol_20": 1.1675740470790907,
       "adv_20_musd": 26141.063050271303,
       "history_days": 128,
@@ -44,7 +44,7 @@
       "split_pm": 4.496407169846006,
       "split_rth": 0.16132507747596003,
       "split_ah": 1.202722410553747e-06,
-      "session": "rth",
+      "session": "afterhours",
       "note": "most of a normal day already printed \u2014 chasing leftover is how overnight got hurt"
     },
     {
@@ -69,7 +69,7 @@
       "ah_range_pct": 0.2243604500203162,
       "night_from": "ah",
       "gap_pct": -2.5832933639939326,
-      "vwap": 426.4953330079421,
+      "vwap": 427.82309387755106,
       "rvol_20": 1.1686143675647116,
       "adv_20_musd": 3880.1668243930053,
       "history_days": 128,
@@ -90,7 +90,7 @@
       "split_pm": 1.959153106797007,
       "split_rth": 0.07694320184328252,
       "split_ah": 0.16265028561899264,
-      "session": "rth",
+      "session": "afterhours",
       "note": "no established 2x \u2014 underlying same-session only, or skip; most of a normal day already printed \u2014 chasing leftover is how overnight got hurt"
     },
     {
@@ -115,7 +115,7 @@
       "ah_range_pct": 0.6471824156879665,
       "night_from": "ah",
       "gap_pct": -5.037718640106514,
-      "vwap": 184.78717578427108,
+      "vwap": 185.76197659574473,
       "rvol_20": 1.128352091572248,
       "adv_20_musd": 1702.595658334961,
       "history_days": 128,
@@ -136,7 +136,7 @@
       "split_pm": 4.170261772081374,
       "split_rth": 0.032334491061025705,
       "split_ah": 0.04312100720182954,
-      "session": "rth",
+      "session": "afterhours",
       "note": "no established 2x \u2014 underlying same-session only, or skip; most of a normal day already printed \u2014 chasing leftover is how overnight got hurt"
     },
     {
@@ -161,7 +161,7 @@
       "ah_range_pct": 0.5784293043473532,
       "night_from": "ah",
       "gap_pct": -9.566666666666668,
-      "vwap": 1681.6026582802494,
+      "vwap": 1733.1460877551021,
       "rvol_20": 1.1226312982492062,
       "adv_20_musd": 20606.716702846068,
       "history_days": 128,
@@ -182,7 +182,7 @@
       "split_pm": 8.908045977011492,
       "split_rth": 0.010909157237792844,
       "split_ah": 0.3335984999149222,
-      "session": "rth",
+      "session": "afterhours",
       "note": "no established 2x \u2014 underlying same-session only, or skip; most of a normal day already printed \u2014 chasing leftover is how overnight got hurt"
     },
     {
@@ -207,7 +207,7 @@
       "ah_range_pct": 4.008174439453231,
       "night_from": "ah",
       "gap_pct": -1.9255156452930522,
-      "vwap": 517.1791884177821,
+      "vwap": 517.9978693877551,
       "rvol_20": 1.2048562976732171,
       "adv_20_musd": 3723.9342711872864,
       "history_days": 128,
@@ -228,7 +228,7 @@
       "split_pm": 2.0813268296165033,
       "split_rth": 0.0019254733788054423,
       "split_ah": 0.22697888477318795,
-      "session": "rth",
+      "session": "afterhours",
       "note": "sector tape; do not jump to SOXL/SOXS overnight; no established 2x \u2014 underlying same-session only, or skip; most of a normal day already printed \u2014 chasing leftover is how overnight got hurt"
     },
     {
@@ -253,7 +253,7 @@
       "ah_range_pct": 0.13042866258609123,
       "night_from": "ah",
       "gap_pct": -1.1798750728210794,
-      "vwap": 565.7784616108879,
+      "vwap": 566.097018367347,
       "rvol_20": 1.328664102332634,
       "adv_20_musd": 3856.605669383545,
       "history_days": 128,
@@ -274,7 +274,7 @@
       "split_pm": 1.282166035945298,
       "split_rth": 0.0035307191945777028,
       "split_ah": 0.13758448082171748,
-      "session": "rth",
+      "session": "afterhours",
       "note": "sector tape; do not jump to SOXL/SOXS overnight; no established 2x \u2014 underlying same-session only, or skip; most of a normal day already printed \u2014 chasing leftover is how overnight got hurt"
     },
     {
@@ -299,7 +299,7 @@
       "ah_range_pct": 5.977786592621984,
       "night_from": "ah",
       "gap_pct": -2.067712489036666,
-      "vwap": 251.89451673996146,
+      "vwap": 251.84895714285713,
       "rvol_20": 1.0154057186168108,
       "adv_20_musd": 923.6671729961395,
       "history_days": 128,
@@ -320,7 +320,7 @@
       "split_pm": 1.435993649283307,
       "split_rth": 0.003970711162848417,
       "split_ah": 2.421069211777649e-06,
-      "session": "rth",
+      "session": "afterhours",
       "note": "no established 2x \u2014 underlying same-session only, or skip; most of a normal day already printed \u2014 chasing leftover is how overnight got hurt"
     },
     {
@@ -345,7 +345,7 @@
       "ah_range_pct": 0.3707086614173175,
       "night_from": "ah",
       "gap_pct": -3.6937008299692264,
-      "vwap": 471.3210684469668,
+      "vwap": 476.33993673469394,
       "rvol_20": 0.9732199246525628,
       "adv_20_musd": 8352.220036967621,
       "history_days": 128,
@@ -366,7 +366,7 @@
       "split_pm": 3.3817046875924572,
       "split_rth": 0.025126183668822133,
       "split_ah": 0.25133776863554,
-      "session": "rth",
+      "session": "afterhours",
       "note": "most of a normal day already printed \u2014 chasing leftover is how overnight got hurt"
     },
     {
@@ -391,7 +391,7 @@
       "ah_range_pct": 0.37882619514859456,
       "night_from": "ah",
       "gap_pct": -3.713059224355175,
-      "vwap": 39.77189883512147,
+      "vwap": 39.53600612244898,
       "rvol_20": 0.8991106954673967,
       "adv_20_musd": 2030.0223972255421,
       "history_days": 128,
@@ -412,7 +412,7 @@
       "split_pm": 3.3594345730280417,
       "split_rth": 0.0,
       "split_ah": 0.11821205457821504,
-      "session": "rth",
+      "session": "afterhours",
       "note": "no established 2x \u2014 underlying same-session only, or skip; most of a normal day already printed \u2014 chasing leftover is how overnight got hurt"
     },
     {
@@ -437,7 +437,7 @@
       "ah_range_pct": 6.864117168429609,
       "night_from": "ah",
       "gap_pct": -3.1366793719915798,
-      "vwap": 305.0456424924731,
+      "vwap": 306.91731086956514,
       "rvol_20": 0.8774088373858605,
       "adv_20_musd": 2342.453791407013,
       "history_days": 128,
@@ -458,7 +458,7 @@
       "split_pm": 1.3261803924680682,
       "split_rth": 0.00324370168856003,
       "split_ah": 0.126776306678833,
-      "session": "rth",
+      "session": "afterhours",
       "note": "no established 2x \u2014 underlying same-session only, or skip; most of a normal day already printed \u2014 chasing leftover is how overnight got hurt"
     },
     {
@@ -483,7 +483,7 @@
       "ah_range_pct": 0.22365418906313142,
       "night_from": "ah",
       "gap_pct": 0.7544023888127249,
-      "vwap": 356.57336268394386,
+      "vwap": 357.2876530612245,
       "rvol_20": 1.218131829475405,
       "adv_20_musd": 8759.284900957031,
       "history_days": 128,
@@ -504,7 +504,7 @@
       "split_pm": 0.642639324598826,
       "split_rth": 0.008381888742237109,
       "split_ah": 0.22379498927403985,
-      "session": "rth",
+      "session": "afterhours",
       "note": "most of a normal day already printed \u2014 chasing leftover is how overnight got hurt"
     },
     {
@@ -529,7 +529,7 @@
       "ah_range_pct": 0.40998695259024354,
       "night_from": "ah",
       "gap_pct": -2.9958277247728593,
-      "vwap": 94.63501305199804,
+      "vwap": 95.73682040816324,
       "rvol_20": 0.849407229685814,
       "adv_20_musd": 9276.14977401268,
       "history_days": 128,
@@ -550,7 +550,7 @@
       "split_pm": 3.643009332549052,
       "split_rth": 0.010432679037108983,
       "split_ah": 0.0742119227826521,
-      "session": "rth",
+      "session": "afterhours",
       "note": "no established 2x \u2014 underlying same-session only, or skip; most of a normal day already printed \u2014 chasing leftover is how overnight got hurt"
     },
     {
@@ -575,7 +575,7 @@
       "ah_range_pct": 7.245010989010982,
       "night_from": "ah",
       "gap_pct": -2.295967023216272,
-      "vwap": 454.2604670322052,
+      "vwap": 454.08668163265304,
       "rvol_20": 0.6464280458623927,
       "adv_20_musd": 3678.542547331238,
       "history_days": 128,
@@ -596,7 +596,7 @@
       "split_pm": 0.78291471970654,
       "split_rth": 0.00021476600874370533,
       "split_ah": 0.06399369660410326,
-      "session": "rth",
+      "session": "afterhours",
       "note": "no established 2x \u2014 underlying same-session only, or skip; most of a normal day already printed \u2014 chasing leftover is how overnight got hurt"
     },
     {
@@ -621,7 +621,7 @@
       "ah_range_pct": 0.27407407407407003,
       "night_from": "ah",
       "gap_pct": -0.004341296373100434,
-      "vwap": 232.08016405929268,
+      "vwap": 229.9462612244898,
       "rvol_20": 0.9010819642727197,
       "adv_20_musd": 28402.98124869461,
       "history_days": 128,
@@ -632,7 +632,7 @@
       "fuel_score": 9.595664259434054,
       "fuel_note": "0.8\u00d7 ATR used \u00b7 0.6% left \u2014 spent",
       "lean": "down",
-      "lean_why": "cash -0.0% \u00b7 below VWAP",
+      "lean_why": "night -0.4%",
       "lean_strength": 1,
       "setup": "",
       "atr_used": 0.831264501316099,
@@ -642,7 +642,7 @@
       "split_pm": 0.33425915419702523,
       "split_rth": 0.006511282170817978,
       "split_ah": 0.3668415707851591,
-      "session": "rth",
+      "session": "afterhours",
       "note": "most of a normal day already printed \u2014 chasing leftover is how overnight got hurt"
     },
     {
@@ -667,7 +667,7 @@
       "ah_range_pct": 0.40581945962160776,
       "night_from": "ah",
       "gap_pct": -3.895518715600721,
-      "vwap": 460.98680850954526,
+      "vwap": 466.40594081632656,
       "rvol_20": 0.7253281236124678,
       "adv_20_musd": 3034.484899981842,
       "history_days": 128,
@@ -688,7 +688,7 @@
       "split_pm": 3.478370716703505,
       "split_rth": 0.034228311520589916,
       "split_ah": 0.12625461339197397,
-      "session": "rth",
+      "session": "afterhours",
       "note": "no established 2x \u2014 underlying same-session only, or skip; most of a normal day already printed \u2014 chasing leftover is how overnight got hurt"
     },
     {
@@ -713,7 +713,7 @@
       "ah_range_pct": 0.5378716180943139,
       "night_from": "ah",
       "gap_pct": -4.823187758407743,
-      "vwap": 87.71553971791239,
+      "vwap": 89.10147959183674,
       "rvol_20": 0.6636751099019192,
       "adv_20_musd": 2587.8726460120774,
       "history_days": 128,
@@ -734,7 +734,7 @@
       "split_pm": 4.062220888045809,
       "split_rth": 0.011193079859161958,
       "split_ah": 0.30967932719241364,
-      "session": "rth",
+      "session": "afterhours",
       "note": "no established 2x \u2014 underlying same-session only, or skip; most of a normal day already printed \u2014 chasing leftover is how overnight got hurt"
     },
     {
@@ -759,7 +759,7 @@
       "ah_range_pct": 0.6818836806893924,
       "night_from": "ah",
       "gap_pct": 0.7111499749741013,
-      "vwap": 168.73245924273422,
+      "vwap": 168.44664897959183,
       "rvol_20": 0.6845217613088557,
       "adv_20_musd": 1491.257039526062,
       "history_days": 128,
@@ -780,7 +780,7 @@
       "split_pm": 0.7407813595730728,
       "split_rth": 0.023701128855568854,
       "split_ah": 0.08543594047861758,
-      "session": "rth",
+      "session": "afterhours",
       "note": "most of a normal day already printed \u2014 chasing leftover is how overnight got hurt"
     },
     {
@@ -805,7 +805,7 @@
       "ah_range_pct": 0.09137807809759445,
       "night_from": "ah",
       "gap_pct": 0.49727957341085816,
-      "vwap": 770.5144140505995,
+      "vwap": 769.6366224489797,
       "rvol_20": 0.7765210192219165,
       "adv_20_musd": 27930.468424097595,
       "history_days": 128,
@@ -826,7 +826,7 @@
       "split_pm": 0.1908616774995764,
       "split_rth": 0.0064903196367538385,
       "split_ah": 0.08958120107021017,
-      "session": "rth",
+      "session": "afterhours",
       "note": "benchmark only; no established 2x \u2014 underlying same-session only, or skip; most of a normal day already printed \u2014 chasing leftover is how overnight got hurt"
     }
   ],
